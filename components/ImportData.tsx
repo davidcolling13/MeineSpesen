@@ -16,6 +16,31 @@ const ImportData: React.FC = () => {
     return text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
   };
 
+  // Helper function to find earliest and latest time in a CSV row
+  const findTimeRangeInRow = (parts: string[]) => {
+    // Regex for HH:MM (00:00 to 23:59)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    
+    // Filter all parts that look like a time, ignoring the first few columns which might be IDs or other numbers
+    // We skip indices 0-4 (ID, Names, Date) to avoid false positives if they look like times (unlikely but safe)
+    const times = parts.slice(5).filter(p => timeRegex.test(p.trim()));
+
+    if (times.length < 2) return null;
+
+    // Convert to minutes to sort correctly
+    const toMins = (t: string) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    times.sort((a, b) => toMins(a) - toMins(b));
+
+    return {
+      start: times[0], // Earliest time
+      end: times[times.length - 1] // Latest time
+    };
+  };
+
   const handleImport = async () => {
     if (!dispoFile || !timeFile) return;
     setStatus('processing');
@@ -28,6 +53,7 @@ const ImportData: React.FC = () => {
       const movementMap = new Map<string, Movement>();
 
       // Load existing into map to support merge/update
+      // Key format: EmployeeID_YYYY-MM-DD
       existingMovements.forEach(m => movementMap.set(`${m.employeeId}_${m.date}`, m));
 
       // --- 1. PROCESS DISPO FILE (Locations) ---
@@ -41,6 +67,7 @@ const ImportData: React.FC = () => {
         let location = '';
 
         // Strategy A: Regex for Text Report Format (e.g. "05.01.2026  1092   Rhiem & Sohn")
+        // Updated regex to be more flexible with spaces
         const reportMatch = trimmed.match(/^(\d{2}\.\d{2}\.\d{4})\s+(\d+)\s+(.+)$/);
 
         if (reportMatch) {
@@ -55,18 +82,24 @@ const ImportData: React.FC = () => {
                  empId = parts[0].trim();
                  dateStr = parts[1].trim();
                  location = parts[2].trim();
+            } else if (parts[0].match(/^\d{2}\.\d{2}\.\d{4}$/)) {
+                 // Date first format in CSV
+                 dateStr = parts[0].trim();
+                 empId = parts[1].trim();
+                 location = parts[2].trim();
             }
           }
         }
 
         if (!empId || !dateStr) return;
 
+        // Normalize Date to YYYY-MM-DD
         if (dateStr.includes('.')) {
           const [d, m, y] = dateStr.split('.');
           dateStr = `${y}-${m}-${d}`;
         }
 
-        if (location === '---') location = '';
+        if (location === '---' || location.match(/^---+$/)) location = '';
 
         const key = `${empId}_${dateStr}`;
         let record = movementMap.get(key);
@@ -83,6 +116,7 @@ const ImportData: React.FC = () => {
           };
         }
 
+        // Merge locations (avoid duplicates)
         let currentLocs = record.location ? record.location.split(', ').filter(l => l) : [];
         if (location && !currentLocs.includes(location)) {
           currentLocs.push(location);
@@ -92,33 +126,53 @@ const ImportData: React.FC = () => {
         movementMap.set(key, record);
         dispoCount++;
       });
-      newLog.push(`✓ Dispo-Datei: ${dispoCount} Zeilen verarbeitet (Orte zusammengeführt).`);
+      newLog.push(`✓ Dispo-Datei: ${dispoCount} Zeilen verarbeitet.`);
 
       // --- 2. PROCESS TIME FILE (Hours) ---
       const timeLines = await readFileLines(timeFile);
       let timeCount = 0;
+      let skippedCount = 0;
 
       timeLines.forEach((line) => {
+        // Handle semicolon separated files
         const parts = line.split(';');
         let empId = '';
         let dateStr = '';
         let start = '';
         let end = '';
 
-        if (parts.length > 11 && parts[4] && parts[4].match(/^\d{2}\.\d{2}\.\d{4}$/)) {
+        // Check for Date in column 4 (Index 4) - Standard format based on user sample
+        if (parts.length > 5 && parts[4] && parts[4].match(/^\d{2}\.\d{2}\.\d{4}$/)) {
             empId = parts[0].trim();
             dateStr = parts[4].trim();
-            start = parts[9].trim();
-            end = parts[11].trim();
-        } else if (parts.length >= 4) {
-            empId = parts[0].trim();
-            dateStr = parts[1].trim();
-            start = parts[2].trim();
-            end = parts[3].trim();
+            
+            // Smart Time Detection: Find earliest and latest time in the row
+            const timeRange = findTimeRangeInRow(parts);
+            if (timeRange) {
+              start = timeRange.start;
+              end = timeRange.end;
+            }
+        } 
+        // Fallback for simpler CSVs
+        else if (parts.length >= 4) {
+             // Try to find date in first few columns
+             const dateIdx = parts.findIndex(p => p.match(/^\d{2}\.\d{2}\.\d{4}$/));
+             if (dateIdx > -1) {
+                empId = parts[0].trim();
+                dateStr = parts[dateIdx].trim();
+                const timeRange = findTimeRangeInRow(parts);
+                if (timeRange) {
+                  start = timeRange.start;
+                  end = timeRange.end;
+                }
+             }
         }
 
-        if (!empId || !dateStr || !start || !end) return;
+        if (!empId || !dateStr || !start || !end) {
+          return;
+        }
 
+        // Normalize Date
         if (dateStr.includes('.')) {
           const [d, m, y] = dateStr.split('.');
           dateStr = `${y}-${m}-${d}`;
@@ -127,12 +181,13 @@ const ImportData: React.FC = () => {
         const key = `${empId}_${dateStr}`;
         let record = movementMap.get(key);
         
+        // If we found times but no existing record from Dispo, create one
         if (!record) {
           record = {
             id: crypto.randomUUID(),
             employeeId: empId,
             date: dateStr,
-            location: '',
+            location: '', // No location found in dispo for this day
             startTimeRaw: '', endTimeRaw: '',
             startTimeCorr: '', endTimeCorr: '',
             durationNetto: 0, amount: 0, isManual: false
@@ -153,7 +208,11 @@ const ImportData: React.FC = () => {
         movementMap.set(key, record);
         timeCount++;
       });
-      newLog.push(`✓ Zeit-Datei: ${timeCount} Einträge verarbeitet.`);
+      newLog.push(`✓ Zeit-Datei: ${timeCount} Zeilen mit Zeiten verarbeitet.`);
+      
+      if (dispoCount > 0 && timeCount === 0) {
+        newLog.push("⚠ Warnung: Keine Zeiten importiert. Datumsformate prüfen!");
+      }
 
       await saveMovements(Array.from(movementMap.values()));
       setStatus('success');
@@ -192,7 +251,7 @@ const ImportData: React.FC = () => {
         <h2 className="text-2xl font-bold text-gray-800">Datenimport</h2>
         <p className="text-gray-500">
           Laden Sie die <strong>Dispositionsdatei (Text-Bericht)</strong> und die <strong>Zeitdatei (CSV)</strong> hoch.
-          <br/><span className="text-xs">Mehrfachnennungen in der Dispo werden pro Tag und Mitarbeiter zusammengefasst.</span>
+          <br/><span className="text-xs">Hinweis: Die Datumsbereiche beider Dateien müssen übereinstimmen!</span>
         </p>
       </div>
 
@@ -219,7 +278,7 @@ const ImportData: React.FC = () => {
       </div>
 
       {status !== 'idle' && (
-        <div className={`rounded-lg p-4 border ${status === 'success' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+        <div className={`rounded-lg p-4 border ${status === 'success' ? 'bg-green-50 border-green-200' : status === 'error' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-2 mb-2">
             {status === 'success' && <CheckCircle className="text-green-600" size={20} />}
             {status === 'error' && <AlertTriangle className="text-red-600" size={20} />}
