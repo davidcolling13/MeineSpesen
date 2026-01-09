@@ -32,12 +32,21 @@ const localSet = (key: string, value: any) => {
   }
 };
 
+// --- API Helpers ---
+
+// Helper to check if response is valid JSON API response
+const isValidApiResponse = (res: Response) => {
+  const contentType = res.headers.get("content-type");
+  return res.ok && contentType && contentType.includes("application/json");
+};
+
 // --- API Methods with Fallback ---
 
 export const getEmployees = async (): Promise<Employee[]> => {
   try {
     const res = await fetch('/api/employees');
-    if (!res.ok) throw new Error(res.statusText);
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
+    
     const data = await res.json();
     // Sync to local
     localSet(STORAGE_KEYS.EMPLOYEES, data);
@@ -50,11 +59,12 @@ export const getEmployees = async (): Promise<Employee[]> => {
 
 export const saveEmployee = async (emp: Employee) => {
   try {
-    await fetch('/api/employees', {
+    const res = await fetch('/api/employees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(emp)
     });
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
   } catch (e) {
     console.warn("API unavailable (saveEmployee), saving locally.");
   }
@@ -68,7 +78,8 @@ export const saveEmployee = async (emp: Employee) => {
 
 export const deleteEmployee = async (id: string) => {
   try {
-    await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
   } catch (e) {
     console.warn("API unavailable (deleteEmployee), updating locally.");
   }
@@ -79,7 +90,8 @@ export const deleteEmployee = async (id: string) => {
 export const getConfig = async (): Promise<AppConfig> => {
   try {
     const res = await fetch('/api/config');
-    if (!res.ok) throw new Error(res.statusText);
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
+    
     const data = await res.json();
     localSet(STORAGE_KEYS.CONFIG, data);
     return data;
@@ -91,11 +103,12 @@ export const getConfig = async (): Promise<AppConfig> => {
 
 export const saveConfig = async (cfg: AppConfig) => {
   try {
-    await fetch('/api/config', {
+    const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg)
     });
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
   } catch (e) {
     console.warn("API unavailable (saveConfig), saving locally.");
   }
@@ -105,7 +118,8 @@ export const saveConfig = async (cfg: AppConfig) => {
 export const getMovements = async (): Promise<Movement[]> => {
   try {
     const res = await fetch('/api/movements');
-    if (!res.ok) throw new Error(res.statusText);
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
+    
     const data = await res.json();
     localSet(STORAGE_KEYS.MOVEMENTS, data);
     return data;
@@ -117,11 +131,12 @@ export const getMovements = async (): Promise<Movement[]> => {
 
 export const saveMovements = async (movements: Movement[]) => {
   try {
-    await fetch('/api/movements/batch', {
+    const res = await fetch('/api/movements/batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(movements)
     });
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
   } catch (e) {
      console.warn("API unavailable (saveMovements), saving locally.");
   }
@@ -135,11 +150,12 @@ export const saveMovements = async (movements: Movement[]) => {
 
 export const updateMovement = async (m: Movement) => {
   try {
-    await fetch('/api/movements/update', {
+    const res = await fetch('/api/movements/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(m)
     });
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
   } catch (e) {
     console.warn("API unavailable (updateMovement), saving locally.");
   }
@@ -160,7 +176,8 @@ export const clearMovements = async () => {
 export const checkApiHealth = async (): Promise<boolean> => {
   try {
     const res = await fetch('/api/health');
-    return res.ok;
+    // Ensure we actually got JSON back, not an HTML 404 page from GitHub Pages
+    return isValidApiResponse(res);
   } catch {
     return false;
   }
