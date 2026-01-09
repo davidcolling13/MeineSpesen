@@ -3,12 +3,13 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: './', // Ensures assets are loaded correctly on GitHub Pages (relative paths)
+  // Nutzt relative Pfade. Das ist robuster und funktioniert auch, 
+  // wenn sich der Repository-Name ändert.
+  base: './', 
   build: {
     outDir: 'dist',
   },
   define: {
-    // Vite does not automatically polyfill process.env
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
   },
   server: {
