@@ -32,14 +32,15 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Optional: Falls du den API Key im Build "einbacken" willst (nicht empfohlen für öffentliche Repos)
-          # API_KEY: ${{ secrets.API_KEY }} 
-          CI: false # Verhindert Abbruch bei kleinen Warnungen
+          # Damit die AI funktioniert, fügen Sie in GitHub unter 
+          # Settings > Secrets and variables > Actions ein Secret namens "API_KEY" hinzu.
+          API_KEY: ${{ secrets.API_KEY }} 
+          CI: false
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist' # Lädt nur den gebauten "dist" Ordner hoch
+          path: './dist'
 
   deploy:
     environment:
