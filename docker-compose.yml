@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   app:
-    build: .
+    # Wir nutzen jetzt das fertige Image aus der GitHub Container Registry
+    # Anstatt es lokal mit 'build: .' zu bauen.
+    image: ghcr.io/davidcolling13/meinespesen:latest
     container_name: meinespesen-app
     restart: always
     ports:
