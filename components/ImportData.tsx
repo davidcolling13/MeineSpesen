@@ -25,8 +25,12 @@ const ImportData: React.FC = () => {
 
   const findTimeRangeInRow = (parts: string[]) => {
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    // Suche ab Index 5 nach Uhrzeiten, um IDs/Datum am Anfang zu ignorieren
-    const times = parts.slice(4).filter(p => timeRegex.test(p.trim()));
+    // Suche ab Index 4 nach Uhrzeiten (um IDs/Datum am Anfang zu ignorieren)
+    // Wir filtern '00:00' raus, da dies oft Platzhalter sind
+    const times = parts.slice(4).filter(p => {
+        const t = p.trim();
+        return timeRegex.test(t) && t !== '00:00';
+    });
 
     if (times.length < 2) return null;
 
@@ -35,11 +39,28 @@ const ImportData: React.FC = () => {
       return h * 60 + m;
     };
 
-    times.sort((a, b) => toMins(a) - toMins(b));
+    // Strategie für CSV mit Pausenzeiten (z.B. 00:45):
+    // 1. Startzeit ist meist der erste Eintrag in der Zeile (Kommt).
+    // 2. Endzeit ist meist der späteste Zeitpunkt am Tag (Geht).
+    // Wir sortieren NICHT einfach nach Größe, da sonst '00:45' (Pause) als Startzeit (00:45 Uhr) erkannt würde.
+    
+    const start = times[0]; // Erster gefundener Wert
+    
+    // Suche den maximalen Wert als Endzeit (für Tagschichten)
+    let maxTime = times[0];
+    let maxMins = toMins(times[0]);
+    
+    times.forEach(t => {
+        const m = toMins(t);
+        if (m > maxMins) {
+            maxMins = m;
+            maxTime = t;
+        }
+    });
 
     return {
-      start: times[0],
-      end: times[times.length - 1]
+      start: start,
+      end: maxTime
     };
   };
 
@@ -75,7 +96,6 @@ const ImportData: React.FC = () => {
 
       dispoLines.forEach((line, idx) => {
         const trimmed = line.trim();
-        // Überspringe Header-Zeilen (typischerweise enthalten diese Wörter wie "Datum", "PersNr", "---")
         if (trimmed.startsWith('Datum') || trimmed.startsWith('---') || trimmed.startsWith('SPESENEXPORT') || trimmed.startsWith('Zeitraum')) {
             return;
         }
@@ -84,7 +104,7 @@ const ImportData: React.FC = () => {
         let dateStr = '';
         let location = '';
 
-        // Regex Test
+        // Regex Test (für Berichte wie "05.01.2026 1007 Rhiem...")
         const reportMatch = trimmed.match(/^(\d{2}\.\d{2}\.\d{4})\s+(\d+)\s+(.+)$/);
 
         if (reportMatch) {
@@ -109,9 +129,6 @@ const ImportData: React.FC = () => {
 
         if (!empId || !dateStr) {
             dispoSkipCount++;
-            if (dispoSkipCount <= 3) {
-                addLog(`   ⚠️ Überspringe Zeile ${idx + 1} (Format nicht erkannt): "${trimmed.substring(0, 50)}..."`);
-            }
             return;
         }
 
@@ -149,7 +166,7 @@ const ImportData: React.FC = () => {
         movementMap.set(key, record);
         dispoCount++;
       });
-      addLog(`✅ Dispo erkannt: ${dispoCount} Einträge (Übersprungen: ${dispoSkipCount})`);
+      addLog(`✅ Dispo erkannt: ${dispoCount} Einträge`);
       if (dispoDates.size > 0) {
         const sorted = Array.from(dispoDates).sort();
         addLog(`   📅 Zeitraum Dispo: ${sorted[0]} bis ${sorted[sorted.length-1]}`);
@@ -158,8 +175,7 @@ const ImportData: React.FC = () => {
       // --- 2. ZEIT ANALYSE ---
       addLog(`\n📂 Verarbeite Zeit-Datei: ${timeFile.name}`);
       const timeLines = await readFileLines(timeFile);
-      addLog(`   Zeilen gelesen: ${timeLines.length}`);
-
+      
       let timeCount = 0;
       let timeSkipCount = 0;
       let mergeCount = 0;
@@ -171,14 +187,10 @@ const ImportData: React.FC = () => {
         let start = '';
         let end = '';
 
-        // Versuche Datum zu finden (Spalte 4 in deinem Beispiel)
-        // Format: 1007;Name;Vorname;...;01.12.2025;...
         if (parts.length > 4) {
-            // Suche Spalte mit Datumsmuster
             const dateIdx = parts.findIndex(p => p.match(/^\d{2}\.\d{2}\.\d{4}$/));
             
             if (dateIdx > -1) {
-                // Annahme: ID ist immer Index 0
                 empId = parts[0].trim();
                 dateStr = parts[dateIdx].trim();
                 
@@ -186,19 +198,12 @@ const ImportData: React.FC = () => {
                 if (timeRange) {
                   start = timeRange.start;
                   end = timeRange.end;
-                } else {
-                     // Kein Fehler, vielleicht Urlaub/Krank ohne Zeiten
                 }
             }
         }
 
         if (!empId || !dateStr || !start || !end) {
           timeSkipCount++;
-          // Logge nur die ersten paar Fehler um Spam zu vermeiden
-          if (timeSkipCount <= 3 && parts.length > 2) { 
-             // Nur loggen wenn Zeile nicht leer aussieht
-             // addLog(`   ℹ️ Zeile ${idx+1} übersprungen (Keine Zeiten/Datum): ${line.substring(0,30)}...`);
-          }
           return;
         }
 
@@ -252,14 +257,9 @@ const ImportData: React.FC = () => {
       if (mergeCount === 0 && dispoCount > 0 && timeCount > 0) {
         setStatus('error');
         addLog(`❌ FEHLER: 0 Übereinstimmungen gefunden!`);
-        addLog(`   Die Datumsbereiche überschneiden sich nicht.`);
-        addLog(`   Dispo Monat: ${Array.from(dispoDates)[0]?.substring(0,7)}`);
-        addLog(`   Zeit Monat:  ${Array.from(timeDates)[0]?.substring(0,7)}`);
+        addLog(`   IDs und Datum müssen exakt übereinstimmen.`);
       } else if (mergeCount > 0) {
-        addLog(`✅ ERFOLG: ${mergeCount} Datensätze erfolgreich verknüpft (Ort + Zeit).`);
-        addLog(`ℹ️ ${timeCount - mergeCount} Datensätze haben Zeit aber keinen Ort (Homeoffice/Innendienst?).`);
-        addLog(`ℹ️ ${dispoCount - mergeCount} Datensätze haben Ort aber keine Zeit.`);
-        
+        addLog(`✅ ERFOLG: ${mergeCount} Datensätze erfolgreich verknüpft.`);
         await saveMovements(Array.from(movementMap.values()));
         setStatus('success');
       } else {
@@ -270,9 +270,7 @@ const ImportData: React.FC = () => {
     } catch (e: any) {
       console.error(e);
       setStatus('error');
-      addLog(`❌ KRITISCHER FEHLER:`);
-      addLog(`${e.message}`);
-      addLog(`${e.stack}`);
+      addLog(`❌ KRITISCHER FEHLER: ${e.message}`);
     }
     setLog(logs);
   };
