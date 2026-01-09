@@ -1,43 +1,53 @@
 name: Deploy to GitHub Pages
 
 on:
-  # Löst den Workflow bei Pushes auf den main-Branch aus
   push:
     branches: ["main"]
-  
-  # Erlaubt das manuelle Starten des Workflows
   workflow_dispatch:
 
-# Benötigte Berechtigungen für GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Verhindert gleichzeitige Deployments
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+        env:
+          # Optional: Falls du den API Key im Build "einbacken" willst (nicht empfohlen für öffentliche Repos)
+          # API_KEY: ${{ secrets.API_KEY }} 
+          CI: false # Verhindert Abbruch bei kleinen Warnungen
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Lädt das gesamte Verzeichnis hoch, da kein Build-Schritt notwendig ist
-          path: '.'
+          path: './dist' # Lädt nur den gebauten "dist" Ordner hoch
 
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
