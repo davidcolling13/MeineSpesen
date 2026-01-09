@@ -25,8 +25,7 @@ const ImportData: React.FC = () => {
 
   const findTimeRangeInRow = (parts: string[]) => {
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    // Suche ab Index 4 nach Uhrzeiten (um IDs/Datum am Anfang zu ignorieren)
-    // Wir filtern '00:00' raus, da dies oft Platzhalter sind
+    // Suche ab Index 4 nach Uhrzeiten
     const times = parts.slice(4).filter(p => {
         const t = p.trim();
         return timeRegex.test(t) && t !== '00:00';
@@ -39,14 +38,7 @@ const ImportData: React.FC = () => {
       return h * 60 + m;
     };
 
-    // Strategie für CSV mit Pausenzeiten (z.B. 00:45):
-    // 1. Startzeit ist meist der erste Eintrag in der Zeile (Kommt).
-    // 2. Endzeit ist meist der späteste Zeitpunkt am Tag (Geht).
-    // Wir sortieren NICHT einfach nach Größe, da sonst '00:45' (Pause) als Startzeit (00:45 Uhr) erkannt würde.
-    
-    const start = times[0]; // Erster gefundener Wert
-    
-    // Suche den maximalen Wert als Endzeit (für Tagschichten)
+    const start = times[0];
     let maxTime = times[0];
     let maxMins = toMins(times[0]);
     
@@ -64,6 +56,23 @@ const ImportData: React.FC = () => {
     };
   };
 
+  // Hilfsfunktion zur Normalisierung von Datum (immer YYYY-MM-DD)
+  const normalizeDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const cleanDate = dateStr.trim();
+    if (cleanDate.includes('.')) {
+      const [d, m, y] = cleanDate.split('.');
+      // Wichtig: padStart(2, '0') stellt sicher, dass 1.1.2026 zu 2026-01-01 wird
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return cleanDate;
+  };
+
+  // Hilfsfunktion ID Cleaning (BOM entfernen)
+  const cleanId = (id: string) => {
+     return id.trim().replace(/^\uFEFF/, '');
+  };
+
   const handleImport = async () => {
     if (!dispoFile || !timeFile) return;
     setStatus('processing');
@@ -72,19 +81,18 @@ const ImportData: React.FC = () => {
     const addLog = (msg: string) => logs.push(msg);
 
     addLog(`🚀 Start Import-Vorgang`);
-    addLog(`ℹ️ Umgebung: ${typeof crypto !== 'undefined' && crypto.randomUUID ? 'Secure Context' : 'Legacy Context (ID Fallback aktiv)'}`);
+    addLog(`ℹ️ Umgebung: ${typeof crypto !== 'undefined' && crypto.randomUUID ? 'Secure Context' : 'Legacy Context'}`);
 
     try {
       const config = await getConfig();
       const existingMovements = await getMovements();
       const movementMap = new Map<string, Movement>();
 
-      // Bestehende laden
       existingMovements.forEach(m => movementMap.set(`${m.employeeId}_${m.date}`, m));
       addLog(`💾 ${existingMovements.length} bestehende Einträge im Speicher.`);
 
-      const dispoDates = new Set<string>();
-      const timeDates = new Set<string>();
+      const dispoKeys = new Set<string>();
+      const timeKeys = new Set<string>();
 
       // --- 1. DISPO ANALYSE ---
       addLog(`\n📂 Verarbeite Dispo-Datei: ${dispoFile.name}`);
@@ -92,7 +100,6 @@ const ImportData: React.FC = () => {
       addLog(`   Zeilen gelesen: ${dispoLines.length}`);
       
       let dispoCount = 0;
-      let dispoSkipCount = 0;
 
       dispoLines.forEach((line, idx) => {
         const trimmed = line.trim();
@@ -104,8 +111,8 @@ const ImportData: React.FC = () => {
         let dateStr = '';
         let location = '';
 
-        // Regex Test (für Berichte wie "05.01.2026 1007 Rhiem...")
-        const reportMatch = trimmed.match(/^(\d{2}\.\d{2}\.\d{4})\s+(\d+)\s+(.+)$/);
+        // Regex Test: Erlaubt jetzt auch 1-stellige Tage/Monate: \d{1,2}
+        const reportMatch = trimmed.match(/^(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d+)\s+(.+)$/);
 
         if (reportMatch) {
           dateStr = reportMatch[1];
@@ -115,36 +122,31 @@ const ImportData: React.FC = () => {
           // CSV Fallback
           const parts = trimmed.split(/;|\t|,/);
           if (parts.length >= 3) {
-            if (parts[1] && parts[1].match(/^\d{2}\.\d{2}\.\d{4}$/)) {
-                 empId = parts[0].trim();
-                 dateStr = parts[1].trim();
-                 location = parts[2].trim();
-            } else if (parts[0] && parts[0].match(/^\d{2}\.\d{2}\.\d{4}$/)) {
-                 dateStr = parts[0].trim();
-                 empId = parts[1].trim();
-                 location = parts[2].trim();
+            // Check auf Datumsmuster
+            if (parts[1] && parts[1].match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) {
+                 empId = parts[0];
+                 dateStr = parts[1];
+                 location = parts[2];
+            } else if (parts[0] && parts[0].match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) {
+                 dateStr = parts[0];
+                 empId = parts[1];
+                 location = parts[2];
             }
           }
         }
 
-        if (!empId || !dateStr) {
-            dispoSkipCount++;
-            return;
-        }
+        if (!empId || !dateStr) return;
 
-        // Datum normalisieren
-        if (dateStr.includes('.')) {
-          const [d, m, y] = dateStr.split('.');
-          dateStr = `${y}-${m}-${d}`;
-        }
-        
-        dispoDates.add(dateStr);
+        empId = cleanId(empId);
+        dateStr = normalizeDate(dateStr);
+        location = location.trim();
 
         if (location === '---' || location.match(/^---+$/)) location = '';
 
         const key = `${empId}_${dateStr}`;
-        let record = movementMap.get(key);
+        dispoKeys.add(key);
 
+        let record = movementMap.get(key);
         if (!record) {
           record = {
             id: generateId(),
@@ -167,17 +169,12 @@ const ImportData: React.FC = () => {
         dispoCount++;
       });
       addLog(`✅ Dispo erkannt: ${dispoCount} Einträge`);
-      if (dispoDates.size > 0) {
-        const sorted = Array.from(dispoDates).sort();
-        addLog(`   📅 Zeitraum Dispo: ${sorted[0]} bis ${sorted[sorted.length-1]}`);
-      }
 
       // --- 2. ZEIT ANALYSE ---
       addLog(`\n📂 Verarbeite Zeit-Datei: ${timeFile.name}`);
       const timeLines = await readFileLines(timeFile);
       
       let timeCount = 0;
-      let timeSkipCount = 0;
       let mergeCount = 0;
 
       timeLines.forEach((line, idx) => {
@@ -188,11 +185,12 @@ const ImportData: React.FC = () => {
         let end = '';
 
         if (parts.length > 4) {
-            const dateIdx = parts.findIndex(p => p.match(/^\d{2}\.\d{2}\.\d{4}$/));
+            // Flexibles Regex für Datum
+            const dateIdx = parts.findIndex(p => p.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/));
             
             if (dateIdx > -1) {
-                empId = parts[0].trim();
-                dateStr = parts[dateIdx].trim();
+                empId = parts[0];
+                dateStr = parts[dateIdx];
                 
                 const timeRange = findTimeRangeInRow(parts);
                 if (timeRange) {
@@ -202,19 +200,14 @@ const ImportData: React.FC = () => {
             }
         }
 
-        if (!empId || !dateStr || !start || !end) {
-          timeSkipCount++;
-          return;
-        }
+        if (!empId || !dateStr || !start || !end) return;
 
-        if (dateStr.includes('.')) {
-          const [d, m, y] = dateStr.split('.');
-          dateStr = `${y}-${m}-${d}`;
-        }
+        empId = cleanId(empId);
+        dateStr = normalizeDate(dateStr);
         
-        timeDates.add(dateStr);
-
         const key = `${empId}_${dateStr}`;
+        timeKeys.add(key);
+
         let record = movementMap.get(key);
         
         if (!record) {
@@ -228,6 +221,7 @@ const ImportData: React.FC = () => {
             durationNetto: 0, amount: 0, isManual: false
           };
         } else {
+            // Debug: Check if this was a valid merge
             if (record.location) mergeCount++;
         }
 
@@ -247,17 +241,24 @@ const ImportData: React.FC = () => {
       });
 
       addLog(`✅ Zeiten erkannt: ${timeCount} Einträge`);
-      if (timeDates.size > 0) {
-        const sorted = Array.from(timeDates).sort();
-        addLog(`   📅 Zeitraum Zeiten: ${sorted[0]} bis ${sorted[sorted.length-1]}`);
-      }
 
       // --- DIAGNOSE & ABSCHLUSS ---
       addLog(`\n📊 Zusammenfassung:`);
       if (mergeCount === 0 && dispoCount > 0 && timeCount > 0) {
         setStatus('error');
         addLog(`❌ FEHLER: 0 Übereinstimmungen gefunden!`);
-        addLog(`   IDs und Datum müssen exakt übereinstimmen.`);
+        addLog(`\n🔍 DEBUG INFO (Erste 3 Einträge):`);
+        
+        const dKeys = Array.from(dispoKeys).slice(0,3);
+        const tKeys = Array.from(timeKeys).slice(0,3);
+        
+        addLog(`Dispo Keys (Beispiele):`);
+        dKeys.forEach(k => addLog(` - "${k}"`));
+        
+        addLog(`Zeit Keys (Beispiele):`);
+        tKeys.forEach(k => addLog(` - "${k}"`));
+        
+        addLog(`\nTipp: Prüfen Sie Datum (01.01. vs 1.1.) und Personalnummer.`);
       } else if (mergeCount > 0) {
         addLog(`✅ ERFOLG: ${mergeCount} Datensätze erfolgreich verknüpft.`);
         await saveMovements(Array.from(movementMap.values()));
@@ -342,6 +343,7 @@ const ImportData: React.FC = () => {
                 if (l.includes("❌") || l.includes("⚠️") || l.includes("FEHLER")) colorClass = "text-red-600 font-bold";
                 if (l.includes("✅") || l.includes("ERFOLG")) colorClass = "text-green-600 font-bold";
                 if (l.includes("📂")) colorClass = "text-blue-600 font-bold mt-2 block";
+                if (l.includes("DEBUG INFO")) colorClass = "text-purple-600 font-bold mt-2 block";
                 
                 return <div key={i} className={`${colorClass} whitespace-pre-wrap border-b border-gray-50 py-1`}>{l}</div>
             })}
