@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: meinespesen-app
+    restart: always
+    ports:
+      - "8080:3001"
+      - "600:3001"
+    environment:
+      - API_KEY=${API_KEY}
+    volumes:
+      - ./data:/app/data
