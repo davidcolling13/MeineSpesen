@@ -167,12 +167,19 @@ export const updateMovement = async (m: Movement) => {
   localSet(STORAGE_KEYS.MOVEMENTS, current);
 };
 
-export const clearMovements = async () => {
-  // Not implemented in API yet
-  localSet(STORAGE_KEYS.MOVEMENTS, []);
+export const cleanupOldData = async (beforeDate: string) => {
+  try {
+    const res = await fetch(`/api/movements/cleanup?beforeDate=${beforeDate}`, {
+      method: 'DELETE'
+    });
+    if (!isValidApiResponse(res)) throw new Error("API unavailable");
+    return await res.json();
+  } catch (e) {
+    console.warn("API unavailable (cleanupOldData). Local cleanup logic optional.");
+    return { success: false, error: 'Offline or API error' };
+  }
 };
 
-// Check Health to determine mode for UI
 export const checkApiHealth = async (): Promise<boolean> => {
   try {
     const res = await fetch('/api/health');

@@ -3,6 +3,7 @@ import { getMovements, getEmployees, getConfig, updateMovement } from '../servic
 import { Movement, Employee, AppConfig } from '../types';
 import { Save, Wand2 } from 'lucide-react';
 import { analyzeExpenses } from '../services/gemini';
+import { calculateMovement } from '../services/calculation'; // Import logic
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 
 const Dashboard: React.FC = () => {
@@ -68,33 +69,33 @@ const Dashboard: React.FC = () => {
   const handleSave = async () => {
     if (!editingId || !config || !editForm) return;
     
-    const rawStart = editForm.startTimeCorr || '00:00'; 
-    const rawEnd = editForm.endTimeCorr || '00:00';
-
-    const startMins = rawStart.split(':').map(Number);
-    const endMins = rawEnd.split(':').map(Number);
-    const durationMins = Math.max(0, (endMins[0] * 60 + endMins[1]) - (startMins[0] * 60 + startMins[1]));
-    const durationHours = parseFloat((durationMins / 60).toFixed(2));
+    // Use inputs as "Raw" basis for calculation if we want to leverage the rules, 
+    // OR just treat them as overrides.
+    // If user enters 08:00 and 17:00 in the corrected fields, we want to calc duration based on that.
     
-    const sortedRules = [...config.rules].sort((a, b) => b.hoursThreshold - a.hoursThreshold);
-    const rule = sortedRules.find(r => durationHours >= r.hoursThreshold);
-    const calculatedAmount = rule ? rule.amount : 0;
+    const startCorr = editForm.startTimeCorr || '00:00'; 
+    const endCorr = editForm.endTimeCorr || '00:00';
+    
+    // We create a temporary config with 0 corrections because the user is editing the *Corrected* time directly
+    const tempConfig: AppConfig = { ...config, addStartMins: 0, subEndMins: 0 };
+    
+    // Re-use central logic to handle midnight crossing and money rules correctly
+    const calculated = calculateMovement(startCorr, endCorr, tempConfig);
 
     const original = movements.find(m => m.id === editingId)!;
 
     const updated: Movement = {
       ...original,
       location: editForm.location || '',
-      startTimeCorr: rawStart,
-      endTimeCorr: rawEnd,
-      durationNetto: durationHours,
-      amount: editForm.amount !== undefined ? editForm.amount : calculatedAmount,
+      startTimeCorr: startCorr,
+      endTimeCorr: endCorr,
+      durationNetto: calculated.duration, // Use robust calculation
+      amount: editForm.amount !== undefined ? editForm.amount : calculated.amount, // Allow manual amount override if typed, else calc
       isManual: true
     };
 
     await updateMovement(updated);
     
-    // Update local state optimistic or reload
     setMovements(prev => prev.map(m => m.id === updated.id ? updated : m));
     setEditingId(null);
     setEditForm({});

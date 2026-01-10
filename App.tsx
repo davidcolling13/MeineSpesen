@@ -3,24 +3,22 @@ import {
   Users, 
   Settings, 
   Upload, 
-  LayoutDashboard, 
   FileText,
   Menu,
   X,
   Wifi,
   WifiOff
 } from 'lucide-react';
-import Dashboard from './components/Dashboard';
 import Employees from './components/Employees';
 import AppSettings from './components/Settings';
 import ImportData from './components/ImportData';
 import ReportView from './components/ReportView';
 import { checkApiHealth } from './services/storage';
 
-type View = 'dashboard' | 'employees' | 'settings' | 'import' | 'reports';
+type View = 'employees' | 'settings' | 'import' | 'reports';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [currentView, setCurrentView] = useState<View>('reports');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
 
@@ -73,10 +71,9 @@ const App: React.FC = () => {
           </div>
           
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            <NavItem view="dashboard" icon={LayoutDashboard} label="Dashboard" />
-            <NavItem view="employees" icon={Users} label="Mitarbeiter" />
+            <NavItem view="reports" icon={FileText} label="Spesenabrechnung" />
             <NavItem view="import" icon={Upload} label="Datenimport" />
-            <NavItem view="reports" icon={FileText} label="Berichte & Export" />
+            <NavItem view="employees" icon={Users} label="Mitarbeiter" />
             <div className="pt-4 mt-4 border-t border-gray-100">
               <NavItem view="settings" icon={Settings} label="Einstellungen" />
             </div>
@@ -109,11 +106,10 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-auto p-4 lg:p-8">
           <div className="max-w-7xl mx-auto h-full">
-            {currentView === 'dashboard' && <Dashboard />}
-            {currentView === 'employees' && <Employees />}
-            {currentView === 'import' && <ImportData />}
-            {currentView === 'settings' && <AppSettings />}
             {currentView === 'reports' && <ReportView />}
+            {currentView === 'import' && <ImportData />}
+            {currentView === 'employees' && <Employees />}
+            {currentView === 'settings' && <AppSettings />}
           </div>
         </div>
       </main>
