@@ -1,5 +1,5 @@
 import React from 'react';
-import { Page, Text, View, Document, StyleSheet } from '@react-pdf/renderer';
+import { Page, Text, View, Document, StyleSheet, Svg, Path } from '@react-pdf/renderer';
 import { Movement, Employee } from '../types';
 
 // Create styles
@@ -71,7 +71,8 @@ const styles = StyleSheet.create({
   colDate: { width: '15%', paddingLeft: 5 },
   colLoc: { width: '40%', paddingLeft: 5 },
   colTime: { width: '10%', textAlign: 'right', paddingRight: 5 },
-  colDur: { width: '10%', textAlign: 'right', paddingRight: 5 },
+  // colDur needs flex row to align text and icon
+  colDur: { width: '10%', flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingRight: 5 },
   colAmt: { width: '15%', textAlign: 'right', paddingRight: 5 },
 
   // Footer
@@ -93,7 +94,7 @@ const styles = StyleSheet.create({
   totalValue: { fontWeight: 'bold' },
 
   signatureContainer: {
-    marginTop: 40,
+    marginTop: 60,
     flexDirection: 'row',
     justifyContent: 'flex-end',
   },
@@ -162,7 +163,18 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
                 <Text style={styles.colLoc}>{m.location}</Text>
                 <Text style={styles.colTime}>{m.startTimeCorr}</Text>
                 <Text style={styles.colTime}>{m.endTimeCorr}</Text>
-                <Text style={styles.colDur}>{m.durationNetto.toFixed(2)}</Text>
+                <View style={styles.colDur}>
+                    <Text>{m.durationNetto.toFixed(2)}</Text>
+                    {m.amount > 0 ? (
+                        <Svg width={8} height={8} viewBox="0 0 24 24" style={{ marginLeft: 4 }}>
+                            <Path d="M20 6L9 17L4 12" stroke="#16a34a" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                        </Svg>
+                    ) : (
+                         <Svg width={8} height={8} viewBox="0 0 24 24" style={{ marginLeft: 4 }}>
+                            <Path d="M18 6L6 18M6 6L18 18" stroke="#ef4444" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                        </Svg>
+                    )}
+                </View>
                 <Text style={styles.colAmt}>{m.amount.toFixed(2)}</Text>
             </View>
           );
@@ -175,12 +187,7 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
             <Text style={styles.totalValue}>{totals.amount.toFixed(2)} €</Text>
         </View>
       </View>
-      <View style={[styles.footerContainer, { marginTop: 0 }]}>
-         <View style={[styles.totalBox, { borderTopWidth: 0, backgroundColor: 'white' }]}>
-            <Text style={[styles.totalLabel, { fontSize: 8, color: '#666' }]}>Gesamtstunden:</Text>
-            <Text style={[styles.totalValue, { fontSize: 8, color: '#666' }]}>{totals.hours.toFixed(2)} h</Text>
-        </View>
-      </View>
+      {/* Total hours removed as requested */}
 
       {/* Signature - Compact, only Employee */}
       <View style={styles.signatureContainer}>
