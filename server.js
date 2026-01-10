@@ -119,6 +119,16 @@ function initDbAndStartServer() {
 
 // --- API Routes (MUST BE BEFORE STATIC FILES) ---
 
+// Serve Favicon from Data Directory
+app.get('/favicon.png', (req, res) => {
+  const faviconPath = path.join(DATA_DIR, 'favicon.png');
+  if (fs.existsSync(faviconPath)) {
+    res.sendFile(faviconPath);
+  } else {
+    res.status(404).end();
+  }
+});
+
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
