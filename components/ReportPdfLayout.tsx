@@ -18,6 +18,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#1a1a1a',
     paddingBottom: 10,
   },
+  companyInfo: {
+    fontSize: 8,
+    color: '#444',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -30,6 +36,7 @@ const styles = StyleSheet.create({
   },
   employeeInfo: {
     textAlign: 'right',
+    justifyContent: 'flex-end',
   },
   employeeName: {
     fontSize: 12,
@@ -123,6 +130,7 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
       {/* Header */}
       <View style={styles.headerContainer}>
         <View>
+          <Text style={styles.companyInfo}>Colling Transporte GmbH & Co KG • Sindorfer Str. 55a • 50189 Elsdorf</Text>
           <Text style={styles.title}>Spesenabrechnung</Text>
           <Text style={styles.subtitle}>Zeitraum: {monthName} {year}</Text>
         </View>
