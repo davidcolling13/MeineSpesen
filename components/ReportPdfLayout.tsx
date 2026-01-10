@@ -101,16 +101,23 @@ const styles = StyleSheet.create({
   },
 });
 
-interface ReportPdfProps {
-  movements: Movement[];
+export interface ReportData {
   employee: Employee;
+  movements: Movement[];
   monthName: string;
   year: number;
   totals: { hours: number; amount: number };
 }
 
-const ReportPdfLayout: React.FC<ReportPdfProps> = ({ movements, employee, monthName, year, totals }) => (
-  <Document>
+interface ReportPdfProps {
+  // Supports either a single report or an array of reports for bulk printing
+  data?: ReportData;
+  reports?: ReportData[];
+}
+
+const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
+    const { movements, employee, monthName, year, totals } = data;
+    return (
     <Page size="A4" style={styles.page}>
       
       {/* Header */}
@@ -175,7 +182,32 @@ const ReportPdfLayout: React.FC<ReportPdfProps> = ({ movements, employee, monthN
       </View>
 
     </Page>
-  </Document>
-);
+    );
+};
+
+const ReportPdfLayout: React.FC<ReportPdfProps> = ({ data, reports }) => {
+    
+    // If we have an array of reports (Bulk Print)
+    if (reports && reports.length > 0) {
+        return (
+            <Document>
+                {reports.map((r, idx) => (
+                    <ReportPageContent key={idx} data={r} />
+                ))}
+            </Document>
+        );
+    }
+
+    // Single report
+    if (data) {
+        return (
+            <Document>
+                <ReportPageContent data={data} />
+            </Document>
+        );
+    }
+
+    return <Document><Page><Text>No Data</Text></Page></Document>;
+};
 
 export default ReportPdfLayout;

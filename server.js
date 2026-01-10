@@ -270,6 +270,15 @@ app.post('/api/movements/update', (req, res) => {
   );
 });
 
+app.delete('/api/movements/:id', (req, res) => {
+  // Einzelnes Movement löschen
+  db.run("DELETE FROM movements WHERE id = ?", [req.params.id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: "Movement not found" });
+      res.json({ success: true });
+  });
+});
+
 app.delete('/api/movements/cleanup', (req, res) => {
   const { beforeDate } = req.query;
   if (!beforeDate) {
