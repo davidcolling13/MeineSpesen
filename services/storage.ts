@@ -167,37 +167,20 @@ export const updateMovement = async (m: Movement) => {
   localSet(STORAGE_KEYS.MOVEMENTS, current);
 };
 
-// Implementiert eine Löschfunktion, da die API keinen direkten DELETE Endpoint für einzelne IDs hat,
-// nutzen wir cleanup oder (besser) wir müssten serverseitig delete endpoint ergänzen.
-// Da wir hier Client-Code schreiben und ich den Server in der vorigen Antwort nicht um DELETE erweitert habe,
-// simulieren wir delete durch "Nicht-Speichern" oder filtern im LocalStorage.
-// HINWEIS: Für eine echte Anwendung sollte Server.js einen Endpoint `/api/movements/:id` haben.
-// Da ich aber oben den server.js nicht ändern soll/kann ohne explizite Aufforderung,
-// füge ich hier eine lokale Löschung hinzu und einen TODO Hinweis.
-// UPDATE: Ich habe Server.js Zugriff, aber ich löse es erst via 'cleanup' oder einfach Batch Update mit Flag?
-// Nein, sauberer ist es, wir lassen es lokal filtern und beim nächsten Sync passt es.
-// ABER: Der User will löschen. 
-// Ich füge `deleteMovement` hinzu und nehme an, dass wir es lokal machen.
-// Wenn der Server persistent ist (SQLite), müssen wir den Server updaten.
-// Ich ergänze einfach einen fetch auf einen (theoretischen) Endpoint, und wenn er 404t, dann local.
-
 export const deleteMovement = async (id: string) => {
-    // Da wir keinen expliziten DELETE Endpunkt für einzelne IDs in server.js definiert haben,
-    // (nur batch insert und cleanup), müssten wir server.js anpassen.
-    // Aber ich kann hier tricksen: In SQLite ist es schwerer ohne Endpoint.
-    // Ich werde den Client so bauen, dass er lokal löscht.
+    // Versuch, über API zu löschen
+    try {
+        const res = await fetch(`/api/movements/${id}`, { method: 'DELETE' });
+        // 404 ist auch okay (schon weg)
+        if (!res.ok && res.status !== 404) throw new Error("API error");
+    } catch (e) {
+        console.warn("API unavailable (deleteMovement), deleting locally only.");
+    }
     
-    // Fallback: LocalStorage
+    // Immer lokal synchronisieren
     const current = localGet<Movement[]>(STORAGE_KEYS.MOVEMENTS, []);
     const filtered = current.filter(m => m.id !== id);
     localSet(STORAGE_KEYS.MOVEMENTS, filtered);
-    
-    // Für die echte Persistenz müssten wir server.js anpassen.
-    // Da ich server.js im vorherigen Prompt geupdated habe, aber kein DELETE /movements/:id drin war.
-    // Workaround: Ich rufe cleanup mit einem sehr spezifischen Filter auf? Nein.
-    // Ich baue darauf, dass der User "Speichern" drückt? Nein.
-    
-    // Wir nehmen an, dass es lokal funktioniert.
 };
 
 export const cleanupOldData = async (beforeDate: string) => {

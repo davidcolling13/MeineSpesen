@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig, saveMovements } from '../services/storage';
 import { Movement, Employee, AppConfig } from '../types';
-import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X } from 'lucide-react';
+import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2 } from 'lucide-react';
 import { PDFDownloadLink, pdf } from '@react-pdf/renderer';
 import ReportPdfLayout, { ReportData } from './ReportPdfLayout';
 import { calculateMovement } from '../services/calculation';
@@ -471,7 +471,7 @@ const ReportView: React.FC = () => {
                                             ) : (
                                                 <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => handleEdit(m)} className="text-gray-400 hover:text-blue-600 p-2 rounded hover:bg-blue-50">
-                                                        Edit
+                                                        <Edit2 size={18} />
                                                     </button>
                                                     <button onClick={() => handleDelete(m.id)} className="text-gray-400 hover:text-red-600 p-2 rounded hover:bg-red-50">
                                                         <Trash2 size={18} />

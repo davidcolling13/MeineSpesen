@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { getConfig, saveMovements, getMovements } from '../services/storage';
 import { calculateMovement } from '../services/calculation';
 import { Movement } from '../types';
-import { UploadCloud, FileText, CheckCircle, AlertTriangle, Info, Terminal, RefreshCw } from 'lucide-react';
+import { UploadCloud, CheckCircle, Terminal, RefreshCw } from 'lucide-react';
 
 const ImportData: React.FC = () => {
   const [dispoFile, setDispoFile] = useState<File | null>(null);

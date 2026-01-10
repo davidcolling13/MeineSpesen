@@ -7,13 +7,16 @@ export const parseTime = (timeStr: string): number => {
 };
 
 export const formatTime = (minutes: number): string => {
-  // Handle negative minutes or > 24h normalization if needed, 
-  // currently strictly formatting for HH:MM display
+  // Safe modulo arithmetic for negative numbers to handle time wrap correctly
+  // e.g. -10 mins becomes 23:50
   let m = Math.floor(minutes);
-  if (m < 0) m += 24 * 60; // Normalize negative to previous day logic if strictly needed, usually just clamped
+  const minutesInDay = 24 * 60;
   
-  const h = Math.floor(m / 60) % 24; // Ensure 24h wrap
-  const min = Math.floor(m % 60);
+  // Normalized Minutes (0 to 1439)
+  let normalized = ((m % minutesInDay) + minutesInDay) % minutesInDay;
+  
+  const h = Math.floor(normalized / 60);
+  const min = normalized % 60;
   return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
 };
 
