@@ -20,6 +20,7 @@ const ReportView: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
   const [isPrintingAll, setIsPrintingAll] = useState(false);
+  const [isPrintingSingle, setIsPrintingSingle] = useState(false);
 
   // Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -153,6 +154,31 @@ const ReportView: React.FC = () => {
       alert("Fehler bei der PDF Generierung.");
       setIsSending(false);
     }
+  };
+
+  const handlePrintSingle = async () => {
+    if (!selectedEmployee || !reportData) return;
+    setIsPrintingSingle(true);
+    try {
+        const doc = (
+            <ReportPdfLayout 
+                data={{
+                    movements: reportData, 
+                    employee: selectedEmployee, 
+                    monthName, 
+                    year: selectedYear, 
+                    totals
+                }}
+            />
+        );
+        const blob = await pdf(doc).toBlob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+    } catch (e) {
+        console.error(e);
+        alert("Fehler beim Drucken.");
+    }
+    setIsPrintingSingle(false);
   };
 
   // --- Bulk Actions Helper ---
@@ -318,6 +344,15 @@ const ReportView: React.FC = () => {
                          <span className="text-gray-500 text-sm font-normal ml-2">({reportData.length} Einträge)</span>
                     </div>
                     <div className="flex gap-2">
+                         <button 
+                            onClick={handlePrintSingle}
+                            disabled={isPrintingSingle}
+                            className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800 text-sm disabled:opacity-50 transition-colors"
+                         >
+                            {isPrintingSingle ? <Loader2 size={16} className="animate-spin"/> : <Printer size={16} />}
+                            Drucken
+                         </button>
+
                          <PDFDownloadLink 
                             document={
                                 <ReportPdfLayout 
