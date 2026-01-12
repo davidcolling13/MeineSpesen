@@ -1,29 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { getEmployees, saveEmployee, deleteEmployee } from '../services/storage';
+import React, { useState } from 'react';
+import { useEmployees } from '../hooks/useEmployees';
 import { Employee } from '../types';
-import { Trash2, UserPlus, Edit2 } from 'lucide-react';
+import { Trash2, UserPlus, Edit2, Loader2 } from 'lucide-react';
 
 const Employees: React.FC = () => {
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  // Logic extracted to hook -> Separation of Concerns
+  const { employees, loading, addOrUpdate, remove } = useEmployees();
+  
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Employee>>({});
-
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  const refresh = async () => {
-    const data = await getEmployees();
-    setEmployees(data);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.id || !formData.firstName || !formData.lastName) return;
-    await saveEmployee(formData as Employee);
-    setIsFormOpen(false);
-    setFormData({});
-    refresh();
+    
+    const success = await addOrUpdate(formData as Employee);
+    if (success) {
+      setIsFormOpen(false);
+      setFormData({});
+    }
   };
 
   const handleEdit = (emp: Employee) => {
@@ -33,10 +28,13 @@ const Employees: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (confirm('Mitarbeiter wirklich löschen?')) {
-      await deleteEmployee(id);
-      refresh();
+      await remove(id);
     }
   };
+
+  if (loading && employees.length === 0) {
+      return <div className="flex justify-center p-8"><Loader2 className="animate-spin text-blue-600" /></div>;
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

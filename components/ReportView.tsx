@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig, saveMovements } from '../services/storage';
-import { Movement, Employee, AppConfig } from '../types';
+import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig } from '../services/storage';
+import { Movement, Employee, AppConfig, ReportData } from '../types';
 import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2 } from 'lucide-react';
-import { PDFDownloadLink, pdf } from '@react-pdf/renderer';
-import ReportPdfLayout, { ReportData } from './ReportPdfLayout';
 import { calculateMovement } from '../services/calculation';
+import { generateSingleReportPdf, generateBulkReportPdf } from '../services/pdfGenerator';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
 
@@ -21,6 +20,7 @@ const ReportView: React.FC = () => {
   const [isZipping, setIsZipping] = useState(false);
   const [isPrintingAll, setIsPrintingAll] = useState(false);
   const [isPrintingSingle, setIsPrintingSingle] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,24 +45,32 @@ const ReportView: React.FC = () => {
      });
   }, [allMovements, selectedMonth, selectedYear]);
 
-  const reportData = useMemo(() => {
+  const currentReportData: ReportData | null = useMemo(() => {
     if (!selectedEmpId) return null;
-    return movementsForMonth.filter(m => m.employeeId === selectedEmpId)
+    const emp = employees.find(e => e.id === selectedEmpId);
+    if (!emp) return null;
+
+    const movs = movementsForMonth.filter(m => m.employeeId === selectedEmpId)
            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [selectedEmpId, movementsForMonth]);
-
-  const selectedEmployee = employees.find(e => e.id === selectedEmpId);
-
-  const totals = useMemo(() => {
-    if (!reportData) return { hours: 0, amount: 0 };
-    return reportData.reduce((acc, curr) => ({
+    
+    const totals = movs.reduce((acc, curr) => ({
       hours: acc.hours + curr.durationNetto,
       amount: acc.amount + curr.amount
     }), { hours: 0, amount: 0 });
-  }, [reportData]);
+
+    const monthName = new Date(selectedYear, selectedMonth).toLocaleString('de-DE', { month: 'long' });
+
+    return {
+      employee: emp,
+      movements: movs,
+      monthName,
+      year: selectedYear,
+      totals
+    };
+
+  }, [selectedEmpId, movementsForMonth, employees, selectedMonth, selectedYear]);
 
   const monthName = new Date(selectedYear, selectedMonth).toLocaleString('de-DE', { month: 'long' });
-  const singleFileName = `Spesen_${selectedYear}-${(selectedMonth+1).toString().padStart(2,'0')}_${selectedEmployee?.lastName || 'Report'}.pdf`;
 
   // --- Editing Logic ---
   const handleEdit = (m: Movement) => {
@@ -73,7 +81,6 @@ const ReportView: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (confirm('Möchten Sie diesen Datensatz wirklich löschen?')) {
         await deleteMovement(id);
-        // Optimistic update locally to feel snappy
         setAllMovements(prev => prev.filter(m => m.id !== id));
     }
   };
@@ -83,8 +90,6 @@ const ReportView: React.FC = () => {
 
     const startCorr = editForm.startTimeCorr || '00:00'; 
     const endCorr = editForm.endTimeCorr || '00:00';
-    
-    // We create a temporary config with 0 corrections because the user is editing the *Corrected* time directly
     const tempConfig: AppConfig = { ...config, addStartMins: 0, subEndMins: 0 };
     
     const calculated = calculateMovement(startCorr, endCorr, tempConfig);
@@ -101,51 +106,43 @@ const ReportView: React.FC = () => {
     };
 
     await updateMovement(updated);
-    
     setAllMovements(prev => prev.map(m => m.id === updated.id ? updated : m));
     setEditingId(null);
     setEditForm({});
   };
 
 
-  // --- Individual Actions ---
+  // --- Individual Actions (Using PDF Generator Service) ---
   const handleEmail = async () => {
-    if (!selectedEmployee || !reportData) return;
-    if (!selectedEmployee.email) {
+    if (!currentReportData) return;
+    if (!currentReportData.employee.email) {
       alert("Keine Email-Adresse für diesen Mitarbeiter hinterlegt.");
       return;
     }
     
     setIsSending(true);
     try {
-      const doc = (
-        <ReportPdfLayout 
-            data={{
-                movements: reportData, 
-                employee: selectedEmployee, 
-                monthName, 
-                year: selectedYear, 
-                totals
-            }}
-        />
-      );
-      const blob = await pdf(doc).toBlob();
+      // 1. Generate Blob via Service
+      const blob = await generateSingleReportPdf(currentReportData);
       
+      // 2. Convert to Base64 for Transport
       const reader = new FileReader();
       reader.readAsDataURL(blob);
       reader.onloadend = async () => {
           const base64data = reader.result;
+          const fileName = `Spesen_${selectedYear}-${(selectedMonth+1).toString().padStart(2,'0')}_${currentReportData.employee.lastName}.pdf`;
+          
           const res = await fetch('/api/email-report', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                email: selectedEmployee.email,
-                fileName: singleFileName,
+                email: currentReportData.employee.email,
+                fileName: fileName,
                 fileData: base64data
             })
           });
 
-          if (res.ok) alert(`PDF wurde erfolgreich an ${selectedEmployee.email} gesendet.`);
+          if (res.ok) alert(`PDF wurde erfolgreich an ${currentReportData.employee.email} gesendet.`);
           else alert("Fehler beim Senden der Email.");
           setIsSending(false);
       };
@@ -156,22 +153,25 @@ const ReportView: React.FC = () => {
     }
   };
 
+  const handleDownloadSingle = async () => {
+    if (!currentReportData) return;
+    setIsDownloading(true);
+    try {
+        const blob = await generateSingleReportPdf(currentReportData);
+        const fileName = `Spesen_${selectedYear}-${(selectedMonth+1).toString().padStart(2,'0')}_${currentReportData.employee.lastName}.pdf`;
+        FileSaver.saveAs(blob, fileName);
+    } catch (e) {
+        console.error(e);
+        alert("Fehler beim Download.");
+    }
+    setIsDownloading(false);
+  };
+
   const handlePrintSingle = async () => {
-    if (!selectedEmployee || !reportData) return;
+    if (!currentReportData) return;
     setIsPrintingSingle(true);
     try {
-        const doc = (
-            <ReportPdfLayout 
-                data={{
-                    movements: reportData, 
-                    employee: selectedEmployee, 
-                    monthName, 
-                    year: selectedYear, 
-                    totals
-                }}
-            />
-        );
-        const blob = await pdf(doc).toBlob();
+        const blob = await generateSingleReportPdf(currentReportData);
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
     } catch (e) {
@@ -182,8 +182,7 @@ const ReportView: React.FC = () => {
   };
 
   // --- Bulk Actions Helper ---
-  const generateAllReports = () => {
-      // 1. Identify all employees who have data in this month
+  const generateAllReportsData = (): ReportData[] => {
       const activeEmployeeIds = new Set(movementsForMonth.map(m => m.employeeId));
       const reports: ReportData[] = [];
 
@@ -214,7 +213,7 @@ const ReportView: React.FC = () => {
   const handleBulkZip = async () => {
       setIsZipping(true);
       try {
-          const reports = generateAllReports();
+          const reports = generateAllReportsData();
           if (reports.length === 0) {
               alert("Keine Daten für diesen Monat vorhanden.");
               setIsZipping(false);
@@ -225,14 +224,13 @@ const ReportView: React.FC = () => {
           const folder = zip.folder(`Spesen_${selectedYear}_${selectedMonth+1}`);
 
           for (const rep of reports) {
-               const doc = <ReportPdfLayout data={rep} />;
-               const blob = await pdf(doc).toBlob();
+               // Generate single PDF via service
+               const blob = await generateSingleReportPdf(rep);
                const fName = `Spesen_${rep.employee.lastName}_${rep.employee.firstName}.pdf`;
                folder?.file(fName, blob);
           }
 
           const content = await zip.generateAsync({ type: "blob" });
-          // FileSaver.saveAs is the safest bet for the default export object
           FileSaver.saveAs(content, `Spesen_Export_${selectedYear}-${selectedMonth+1}.zip`);
 
       } catch (e) {
@@ -246,18 +244,15 @@ const ReportView: React.FC = () => {
   const handleBulkPrint = async () => {
       setIsPrintingAll(true);
       try {
-          const reports = generateAllReports();
+          const reports = generateAllReportsData();
           if (reports.length === 0) {
               alert("Keine Daten für diesen Monat vorhanden.");
               setIsPrintingAll(false);
               return;
           }
 
-          // Generate one PDF document containing multiple reports
-          const doc = <ReportPdfLayout reports={reports} />;
-          const blob = await pdf(doc).toBlob();
-          
-          // Open Blob in new tab for printing
+          // Generate merged PDF via service
+          const blob = await generateBulkReportPdf(reports);
           const url = URL.createObjectURL(blob);
           window.open(url, '_blank');
 
@@ -312,7 +307,7 @@ const ReportView: React.FC = () => {
             </div>
         </div>
 
-        {/* Bulk Actions (Visible when in Overview or always visible for utility) */}
+        {/* Bulk Actions */}
         <div className="flex gap-2 border-l pl-4 border-gray-200">
             <button 
                 onClick={handleBulkZip}
@@ -335,13 +330,13 @@ const ReportView: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 bg-white rounded-lg border border-gray-300 overflow-hidden flex flex-col">
-        {selectedEmployee && reportData ? (
+        {currentReportData ? (
             <>
                 {/* Single Employee Action Bar */}
                 <div className="bg-gray-50 border-b p-4 flex justify-between items-center shadow-sm">
                     <div className="text-lg font-semibold text-gray-800">
-                         {selectedEmployee.lastName}, {selectedEmployee.firstName} 
-                         <span className="text-gray-500 text-sm font-normal ml-2">({reportData.length} Einträge)</span>
+                         {currentReportData.employee.lastName}, {currentReportData.employee.firstName} 
+                         <span className="text-gray-500 text-sm font-normal ml-2">({currentReportData.movements.length} Einträge)</span>
                     </div>
                     <div className="flex gap-2">
                          <button 
@@ -353,23 +348,14 @@ const ReportView: React.FC = () => {
                             Drucken
                          </button>
 
-                         <PDFDownloadLink 
-                            document={
-                                <ReportPdfLayout 
-                                    data={{
-                                        movements: reportData, 
-                                        employee: selectedEmployee, 
-                                        monthName, 
-                                        year: selectedYear, 
-                                        totals
-                                    }}
-                                />
-                            } 
-                            fileName={singleFileName}
+                         <button 
+                            onClick={handleDownloadSingle}
+                            disabled={isDownloading}
                             className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 text-sm transition-colors"
                          >
-                            {({ loading }) => (loading ? 'Lade...' : <><Download size={16} /> PDF</>)}
-                         </PDFDownloadLink>
+                            {isDownloading ? <Loader2 size={16} className="animate-spin"/> : <Download size={16} />}
+                            PDF
+                         </button>
 
                          <button 
                             onClick={handleEmail}
@@ -397,7 +383,7 @@ const ReportView: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {reportData.map(m => {
+                            {currentReportData.movements.map(m => {
                                 const isEditing = editingId === m.id;
                                 return (
                                     <tr key={m.id} className="hover:bg-gray-50 group">
@@ -486,8 +472,8 @@ const ReportView: React.FC = () => {
                         <tfoot className="bg-gray-50 font-bold text-gray-700 border-t sticky bottom-0">
                              <tr>
                                  <td colSpan={4} className="p-3 text-right">Gesamt:</td>
-                                 <td className="p-3">{totals.hours.toFixed(2)}</td>
-                                 <td className="p-3">{totals.amount.toFixed(2)} €</td>
+                                 <td className="p-3">{currentReportData.totals.hours.toFixed(2)}</td>
+                                 <td className="p-3">{currentReportData.totals.amount.toFixed(2)} €</td>
                                  <td></td>
                              </tr>
                         </tfoot>

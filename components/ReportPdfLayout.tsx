@@ -1,6 +1,6 @@
 import React from 'react';
 import { Page, Text, View, Document, StyleSheet, Svg, Path } from '@react-pdf/renderer';
-import { Movement, Employee } from '../types';
+import { ReportData } from '../types';
 
 // Create styles
 const styles = StyleSheet.create({
@@ -109,14 +109,6 @@ const styles = StyleSheet.create({
   },
 });
 
-export interface ReportData {
-  employee: Employee;
-  movements: Movement[];
-  monthName: string;
-  year: number;
-  totals: { hours: number; amount: number };
-}
-
 interface ReportPdfProps {
   // Supports either a single report or an array of reports for bulk printing
   data?: ReportData;
@@ -201,7 +193,6 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
 };
 
 const ReportPdfLayout: React.FC<ReportPdfProps> = ({ data, reports }) => {
-    
     // If we have an array of reports (Bulk Print)
     if (reports && reports.length > 0) {
         return (

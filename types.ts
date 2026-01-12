@@ -34,3 +34,12 @@ export interface DateFilter {
   month: number;
   year: number;
 }
+
+// Data Structure required for PDF generation
+export interface ReportData {
+  employee: Employee;
+  movements: Movement[];
+  monthName: string;
+  year: number;
+  totals: { hours: number; amount: number };
+}
