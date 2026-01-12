@@ -14,15 +14,3 @@ services:
       - API_KEY=${API_KEY:-}
     volumes:
       - ./data:/app/data
-
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower-updater
-    restart: always
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_POLL_INTERVAL=300
-    # Überwacht explizit nur den meinespesen-app Container
-    command: meinespesen-app
