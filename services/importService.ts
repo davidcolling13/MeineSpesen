@@ -39,40 +39,6 @@ const normalizeDate = (dateStr: string) => {
   return cleanDate;
 };
 
-// Helper: Find Start/End time in CSV row
-const findTimeRangeInRow = (parts: string[]) => {
-  const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-  // Suche ab Index 4 nach Uhrzeiten
-  const times = parts.slice(4).filter(p => {
-      if (!p) return false;
-      const t = p.trim();
-      return timeRegex.test(t) && t !== '00:00';
-  });
-
-  if (times.length < 2) return null;
-
-  const toMins = (t: string) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
-
-  const start = times[0];
-  let maxTime = times[0];
-  let maxMins = toMins(times[0]);
-  
-  // Finde die späteste Zeit als Endzeit
-  for(let i = 0; i < times.length; i++) {
-      const t = times[i];
-      const m = toMins(t);
-      if (m > maxMins) {
-          maxMins = m;
-          maxTime = t;
-      }
-  }
-
-  return { start: start, end: maxTime };
-};
-
 export const processImportFiles = async (
   dispoFile: File,
   timeFile: File,
@@ -112,32 +78,27 @@ export const processImportFiles = async (
       let dateStr = '';
       let location = '';
 
-      // Versuch 1: Regex für Berichte
+      // Regex für Berichte (Dispo Datei Format: DD.MM.YYYY ID Ort)
+      // Erwartet: Datum (Leerzeichen) ID (Leerzeichen) Rest
       const reportMatch = trimmed.match(/^(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d+)\s+(.+)$/);
 
       if (reportMatch) {
         dateStr = reportMatch[1];
         empId = reportMatch[2];
-        location = reportMatch[3].trim();
-      } else {
-        // Versuch 2: CSV Struktur
-        const parts = trimmed.split(/;|\t|,/);
-        if (parts.length >= 3) {
-          const p0 = parts[0] || '';
-          const p1 = parts[1] || '';
-          const p2 = parts[2] || '';
-          
-          if (p1.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) {
-               empId = p0;
-               dateStr = p1;
-               location = p2;
-          } else if (p0.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) {
-               dateStr = p0;
-               empId = p1;
-               location = p2;
-          }
+        const rawContent = reportMatch[3].trim();
+        
+        // Versuche "Ladestelle" und "Ort" zu trennen
+        // Wir nutzen mind. 3 Leerzeichen als Trenner, da die Datei sehr breite Spalten hat.
+        // Das verhindert falsches Trennen bei Tippfehlern (doppelte Leerzeichen) im Namen.
+        const parts = rawContent.split(/\s{3,}/);
+        
+        if (parts.length >= 2) {
+            location = parts.join(' - '); // "Kieswerk Rhiem - Erftstadt-Erp"
+        } else {
+            location = rawContent;
         }
-      }
+      } 
+      // CSV Fallback entfernt, da die Dispo-Datei strikt textbasiert ist und wir Verwechslungen mit der Zeitdatei vermeiden wollen.
 
       if (!empId || !dateStr) return;
 
@@ -163,12 +124,12 @@ export const processImportFiles = async (
         };
       }
 
-      // Orte zusammenführen, falls mehrere Einträge pro Tag
-      let currentLocs = record.location ? record.location.split(', ').filter(l => l) : [];
+      // Orte zusammenführen
+      let currentLocs = record.location ? record.location.split(' | ').filter(l => l) : [];
       if (location && !currentLocs.includes(location)) {
         currentLocs.push(location);
       }
-      record.location = currentLocs.join(', ');
+      record.location = currentLocs.join(' | ');
       
       movementMap.set(key, record);
       dispoCount++;
@@ -182,33 +143,41 @@ export const processImportFiles = async (
     let timeCount = 0;
     let mergeCount = 0;
 
+    // Standard-Indizes (werden überschrieben, wenn Header gefunden wird)
+    let idxId = 0;
+    let idxDate = 4;
+    let idxStart = 10;
+    let idxEnd = 12;
+
     timeLines.forEach((line) => {
       const parts = line.split(';');
-      let empId = '';
-      let dateStr = '';
-      let start = '';
-      let end = '';
-
-      if (parts.length > 4) {
-          // Finde Datumsspalte
-          const dateIdx = parts.findIndex(p => p && p.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/));
-          
-          if (dateIdx > -1) {
-              empId = parts[0];
-              dateStr = parts[dateIdx];
-              
-              const timeRange = findTimeRangeInRow(parts);
-              if (timeRange) {
-                start = timeRange.start;
-                end = timeRange.end;
-              }
-          }
+      
+      // Header Erkennung
+      if (parts[0] === 'Pers-Nr.' && parts.includes('Datum')) {
+          idxId = parts.indexOf('Pers-Nr.');
+          idxDate = parts.indexOf('Datum');
+          idxStart = parts.indexOf('Kommt');
+          idxEnd = parts.indexOf('Geht');
+          addLog(`ℹ️ Spalten erkannt: ID=${idxId}, Datum=${idxDate}, Kommt=${idxStart}, Geht=${idxEnd}`);
+          return;
       }
 
-      if (!empId || !dateStr || !start || !end) return;
+      // Sicherheitscheck: Zeile lang genug?
+      if (parts.length <= Math.max(idxId, idxDate, idxStart, idxEnd)) return;
 
-      empId = cleanId(empId);
-      dateStr = normalizeDate(dateStr);
+      const rawDate = parts[idxDate];
+      
+      // Validierung: Ist es ein Datum? (Ignoriert Summenzeilen am Ende des Blocks)
+      if (!rawDate || !rawDate.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) return;
+
+      const start = parts[idxStart]?.trim();
+      const end = parts[idxEnd]?.trim();
+
+      // Ignoriere Tage ohne Arbeit (00:00)
+      if (!start || !end || start === '00:00' || end === '00:00') return;
+
+      const empId = cleanId(parts[idxId]);
+      const dateStr = normalizeDate(rawDate);
       
       const key = `${empId}_${dateStr}`;
       timeKeys.add(key);
@@ -227,14 +196,13 @@ export const processImportFiles = async (
           durationNetto: 0, amount: 0, isManual: false
         };
       } else {
-          // Merge Erfolg!
           if (record.location) mergeCount++;
       }
 
       record.startTimeRaw = start;
       record.endTimeRaw = end;
 
-      // Berechnung durchführen (Calculation Service)
+      // Berechnung durchführen
       if (!record.isManual) {
           const calculated = calculateMovement(start, end, config);
           record.startTimeCorr = calculated.startCorr;
@@ -251,31 +219,16 @@ export const processImportFiles = async (
 
     // --- DIAGNOSE ---
     addLog(`\n📊 Zusammenfassung:`);
-    let success = false;
-
+    
     if (mergeCount === 0 && dispoCount > 0 && timeCount > 0) {
       addLog(`❌ FEHLER: 0 Übereinstimmungen gefunden!`);
-      addLog(`\n🔍 DEBUG INFO (Erste 3 Einträge):`);
-      
-      const dKeys = Array.from(dispoKeys).slice(0,3);
-      const tKeys = Array.from(timeKeys).slice(0,3);
-      
-      addLog(`Dispo Keys (Beispiele):`);
-      dKeys.forEach(k => addLog(` - "${k}"`));
-      
-      addLog(`Zeit Keys (Beispiele):`);
-      tKeys.forEach(k => addLog(` - "${k}"`));
-      
-      addLog(`\nTipp: Prüfen Sie Datum (01.01. vs 1.1.) und Personalnummer.`);
+      addLog(`Tipp: Prüfen Sie Datum (01.01. vs 1.1.) und Personalnummer.`);
     } else if (mergeCount > 0) {
-      addLog(`✅ ERFOLG: ${mergeCount} Datensätze erfolgreich verknüpft.`);
-      success = true;
-    } else {
-      addLog(`⚠️ Warnung: Keine Daten verarbeitet.`);
+      addLog(`✅ ERFOLG: ${mergeCount} Datensätze vollständig verknüpft.`);
     }
 
     return {
-      success,
+      success: timeCount > 0 || dispoCount > 0,
       movements: Array.from(movementMap.values()),
       logs
     };
