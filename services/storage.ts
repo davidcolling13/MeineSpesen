@@ -115,6 +115,37 @@ export const saveConfig = async (cfg: AppConfig) => {
   localSet(STORAGE_KEYS.CONFIG, cfg);
 };
 
+export const downloadBackup = async () => {
+  try {
+    const res = await fetch('/api/config/backup');
+    if (!res.ok) throw new Error("Backup download failed");
+    
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    
+    // Versuchen, Dateinamen aus Header zu lesen, sonst Default
+    const contentDisposition = res.headers.get('Content-Disposition');
+    let fileName = `meinespesen_backup_${new Date().toISOString().slice(0,10)}.db`;
+    if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) fileName = match[1];
+    }
+    
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    return true;
+  } catch (e) {
+    console.error("Backup Error:", e);
+    alert("Fehler beim Herunterladen des Backups. Ist der Server erreichbar?");
+    return false;
+  }
+};
+
 export const getMovements = async (): Promise<Movement[]> => {
   try {
     const res = await fetch('/api/movements');

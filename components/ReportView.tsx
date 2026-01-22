@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig } from '../services/storage';
+import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig, saveMovements } from '../services/storage';
 import { Movement, Employee, AppConfig, ReportData } from '../types';
-import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2 } from 'lucide-react';
+import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2, CheckSquare, Square, MapPin } from 'lucide-react';
 import { calculateMovement } from '../services/calculation';
 import { generateSingleReportPdf, generateBulkReportPdf } from '../services/pdfGenerator';
 import JSZip from 'jszip';
@@ -25,6 +25,10 @@ const ReportView: React.FC = () => {
   // Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Movement>>({});
+
+  // Bulk Edit State
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [bulkLocation, setBulkLocation] = useState('');
 
   const refreshData = async () => {
     const [e, m, c] = await Promise.all([getEmployees(), getMovements(), getConfig()]);
@@ -71,6 +75,63 @@ const ReportView: React.FC = () => {
   }, [selectedEmpId, movementsForMonth, employees, selectedMonth, selectedYear]);
 
   const monthName = new Date(selectedYear, selectedMonth).toLocaleString('de-DE', { month: 'long' });
+
+  // --- Bulk Selection Handlers ---
+  const toggleSelectAll = () => {
+    if (!currentReportData) return;
+    if (selectedRowIds.size === currentReportData.movements.length) {
+      setSelectedRowIds(new Set());
+    } else {
+      setSelectedRowIds(new Set(currentReportData.movements.map(m => m.id)));
+    }
+  };
+
+  const toggleSelectRow = (id: string) => {
+    const newSet = new Set(selectedRowIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedRowIds(newSet);
+  };
+
+  const handleBulkUpdateLocation = async () => {
+    if (!bulkLocation || selectedRowIds.size === 0) return;
+    if (!confirm(`Möchten Sie den Ort für ${selectedRowIds.size} Einträge auf "${bulkLocation}" ändern?`)) return;
+
+    const updates: Movement[] = [];
+    allMovements.forEach(m => {
+      if (selectedRowIds.has(m.id)) {
+        updates.push({ ...m, location: bulkLocation, isManual: true });
+      }
+    });
+
+    await saveMovements(updates);
+    
+    // Update local state optimistically
+    setAllMovements(prev => prev.map(m => {
+      if (selectedRowIds.has(m.id)) {
+        return { ...m, location: bulkLocation, isManual: true };
+      }
+      return m;
+    }));
+    
+    setSelectedRowIds(new Set());
+    setBulkLocation('');
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRowIds.size === 0) return;
+    if (!confirm(`Möchten Sie ${selectedRowIds.size} Einträge wirklich unwiderruflich löschen?`)) return;
+
+    for (const id of selectedRowIds) {
+      await deleteMovement(id);
+    }
+
+    setAllMovements(prev => prev.filter(m => !selectedRowIds.has(m.id)));
+    setSelectedRowIds(new Set());
+  };
 
   // --- Editing Logic ---
   const handleEdit = (m: Movement) => {
@@ -264,7 +325,7 @@ const ReportView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
+    <div className="space-y-6 h-full flex flex-col relative">
       {/* Top Filter Bar */}
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-wrap justify-between gap-4 items-end flex-shrink-0">
         <div className="flex gap-4 items-end flex-wrap">
@@ -273,7 +334,7 @@ const ReportView: React.FC = () => {
             <select 
                 className="border rounded p-2 min-w-[200px]"
                 value={selectedEmpId}
-                onChange={e => setSelectedEmpId(e.target.value)}
+                onChange={e => { setSelectedEmpId(e.target.value); setSelectedRowIds(new Set()); }}
             >
                 <option value="">-- Übersicht (Alle) --</option>
                 {employees.map(e => (
@@ -286,7 +347,7 @@ const ReportView: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Monat</label>
             <select 
                 value={selectedMonth} 
-                onChange={e => setSelectedMonth(Number(e.target.value))}
+                onChange={e => { setSelectedMonth(Number(e.target.value)); setSelectedRowIds(new Set()); }}
                 className="border rounded p-2"
             >
                 {Array.from({length: 12}, (_, i) => (
@@ -299,7 +360,7 @@ const ReportView: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Jahr</label>
             <select 
                 value={selectedYear} 
-                onChange={e => setSelectedYear(Number(e.target.value))}
+                onChange={e => { setSelectedYear(Number(e.target.value)); setSelectedRowIds(new Set()); }}
                 className="border rounded p-2"
             >
                 {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
@@ -307,7 +368,7 @@ const ReportView: React.FC = () => {
             </div>
         </div>
 
-        {/* Bulk Actions */}
+        {/* Bulk Actions (Global) */}
         <div className="flex gap-2 border-l pl-4 border-gray-200">
             <button 
                 onClick={handleBulkZip}
@@ -329,7 +390,7 @@ const ReportView: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 bg-white rounded-lg border border-gray-300 overflow-hidden flex flex-col">
+      <div className="flex-1 min-h-0 bg-white rounded-lg border border-gray-300 overflow-hidden flex flex-col relative">
         {currentReportData ? (
             <>
                 {/* Single Employee Action Bar */}
@@ -368,11 +429,56 @@ const ReportView: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Bulk Edit Toolbar (Sticky Top under header) */}
+                {selectedRowIds.size > 0 && (
+                  <div className="bg-blue-50 border-b border-blue-200 p-3 flex items-center justify-between animate-fade-in sticky top-0 z-20">
+                    <div className="flex items-center gap-4">
+                      <span className="font-semibold text-blue-900 bg-blue-200 px-2 py-1 rounded text-sm">
+                        {selectedRowIds.size} ausgewählt
+                      </span>
+                      <div className="flex items-center gap-2 border-l border-blue-200 pl-4">
+                        <MapPin size={16} className="text-blue-600" />
+                        <input 
+                          type="text" 
+                          placeholder="Neuer Ort für alle..."
+                          className="text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          value={bulkLocation}
+                          onChange={(e) => setBulkLocation(e.target.value)}
+                        />
+                        <button 
+                          onClick={handleBulkUpdateLocation}
+                          disabled={!bulkLocation}
+                          className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          Ort aktualisieren
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <button 
+                        onClick={handleBulkDelete}
+                        className="flex items-center gap-2 text-sm bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 border border-red-200"
+                      >
+                        <Trash2 size={16} /> Löschen
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Editable Table */}
                 <div className="overflow-auto flex-1 p-4">
                     <table className="w-full text-sm text-left border-collapse">
-                        <thead className="bg-gray-50 text-gray-600 font-medium border-b sticky top-0">
+                        <thead className="bg-gray-50 text-gray-600 font-medium border-b sticky top-0 z-10 shadow-sm">
                             <tr>
+                                <th className="p-3 w-10">
+                                  <button onClick={toggleSelectAll} className="text-gray-500 hover:text-blue-600">
+                                    {currentReportData.movements.length > 0 && selectedRowIds.size === currentReportData.movements.length ? (
+                                      <CheckSquare size={18} />
+                                    ) : (
+                                      <Square size={18} />
+                                    )}
+                                  </button>
+                                </th>
                                 <th className="p-3">Datum</th>
                                 <th className="p-3">Ort</th>
                                 <th className="p-3">Start (Korr)</th>
@@ -385,8 +491,14 @@ const ReportView: React.FC = () => {
                         <tbody className="divide-y divide-gray-100">
                             {currentReportData.movements.map(m => {
                                 const isEditing = editingId === m.id;
+                                const isSelected = selectedRowIds.has(m.id);
                                 return (
-                                    <tr key={m.id} className="hover:bg-gray-50 group">
+                                    <tr key={m.id} className={`group hover:bg-gray-50 ${isSelected ? 'bg-blue-50/50' : ''}`}>
+                                        <td className="p-3">
+                                          <button onClick={() => toggleSelectRow(m.id)} className={`${isSelected ? 'text-blue-600' : 'text-gray-300 group-hover:text-gray-400'}`}>
+                                            {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
+                                          </button>
+                                        </td>
                                         <td className="p-3">{new Date(m.date).toLocaleDateString('de-DE')}</td>
                                         
                                         {/* Location */}
@@ -469,9 +581,9 @@ const ReportView: React.FC = () => {
                                 );
                             })}
                         </tbody>
-                        <tfoot className="bg-gray-50 font-bold text-gray-700 border-t sticky bottom-0">
+                        <tfoot className="bg-gray-50 font-bold text-gray-700 border-t sticky bottom-0 z-10">
                              <tr>
-                                 <td colSpan={4} className="p-3 text-right">Gesamt:</td>
+                                 <td colSpan={5} className="p-3 text-right">Gesamt:</td>
                                  <td className="p-3">{currentReportData.totals.hours.toFixed(2)}</td>
                                  <td className="p-3">{currentReportData.totals.amount.toFixed(2)} €</td>
                                  <td></td>

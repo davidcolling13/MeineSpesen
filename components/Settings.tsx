@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { getConfig, saveConfig, cleanupOldData } from '../services/storage';
+import { getConfig, saveConfig, cleanupOldData, downloadBackup } from '../services/storage';
 import { AppConfig } from '../types';
-import { Save, Trash2, AlertTriangle } from 'lucide-react';
+import { Save, Trash2, AlertTriangle, Database, Download } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const [config, setConfig] = useState<AppConfig>({
@@ -135,40 +135,58 @@ const Settings: React.FC = () => {
          </button>
        </div>
 
-       {/* Datenbank Wartung / Danger Zone */}
-       <div className="bg-red-50 p-6 rounded-lg shadow-sm border border-red-100 mt-12">
-          <div className="flex items-start gap-3">
-             <AlertTriangle className="text-red-600 flex-shrink-0" size={24} />
-             <div>
-                <h3 className="text-lg font-semibold text-red-800 mb-2">Datenbank Wartung</h3>
-                <p className="text-sm text-red-700 mb-4">
-                  Hier können Sie alte Spesen-Datensätze löschen, um Speicherplatz freizugeben.
-                  Dies betrifft nur die Bewegungsdaten (Importe), nicht die Mitarbeiter-Stammdaten oder Konfigurationen.
-                </p>
-                
-                <div className="flex flex-col sm:flex-row items-end gap-4">
-                    <div className="w-full sm:w-auto">
-                        <label className="block text-xs font-semibold text-red-800 mb-1">
-                          Lösche alles VOR dem Datum:
-                        </label>
-                        <input 
-                          type="date" 
-                          className="border border-red-200 rounded p-2 text-sm w-full"
-                          value={cleanupDate}
-                          onChange={e => setCleanupDate(e.target.value)}
-                        />
-                    </div>
+       {/* Wartung Section */}
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
+          
+          {/* Datensicherung */}
+          <div className="bg-green-50 p-6 rounded-lg shadow-sm border border-green-100">
+             <div className="flex items-start gap-3">
+                <Database className="text-green-600 flex-shrink-0" size={24} />
+                <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-green-900 mb-2">Datensicherung</h3>
+                    <p className="text-sm text-green-800 mb-4">
+                      Laden Sie eine vollständige Kopie der Datenbank herunter.
+                    </p>
                     <button 
-                      onClick={handleCleanup}
-                      disabled={!cleanupDate}
-                      className="flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full sm:w-auto"
+                      onClick={downloadBackup}
+                      className="flex items-center gap-2 bg-white text-green-700 border border-green-200 px-4 py-2 rounded hover:bg-green-100 transition-colors w-full justify-center shadow-sm"
                     >
-                      <Trash2 size={16} />
-                      <span>Alte Daten Löschen</span>
+                      <Download size={16} />
+                      <span>Backup herunterladen</span>
                     </button>
                 </div>
              </div>
           </div>
+
+          {/* Löschen / Cleanup */}
+          <div className="bg-red-50 p-6 rounded-lg shadow-sm border border-red-100">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="text-red-600 flex-shrink-0" size={24} />
+                <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-red-800 mb-2">Datenbank bereinigen</h3>
+                    <p className="text-sm text-red-700 mb-2">
+                      Lösche alte Datensätze vor dem gewählten Datum.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                        <input 
+                          type="date" 
+                          className="border border-red-200 rounded p-2 text-sm bg-white w-full"
+                          value={cleanupDate}
+                          onChange={e => setCleanupDate(e.target.value)}
+                        />
+                        <button 
+                          onClick={handleCleanup}
+                          disabled={!cleanupDate}
+                          className="flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full shadow-sm"
+                        >
+                          <Trash2 size={16} />
+                          <span>Daten unwiderruflich löschen</span>
+                        </button>
+                    </div>
+                </div>
+              </div>
+          </div>
+
        </div>
     </div>
   );
