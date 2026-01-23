@@ -37,13 +37,34 @@ export const initDb = () => {
       email TEXT
     )`);
 
-    // 2. Config
+    // 2. Config (General)
     db.run(`CREATE TABLE IF NOT EXISTS config (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       data TEXT
     )`);
 
-    // 3. Movements
+    // 3. Email Settings
+    db.run(`CREATE TABLE IF NOT EXISTS email_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      host TEXT,
+      port INTEGER,
+      secure INTEGER,
+      user TEXT,
+      pass TEXT,
+      fromEmail TEXT
+    )`, (err) => {
+      if (!err) {
+        // Init default email settings if empty
+        db.get("SELECT id FROM email_settings WHERE id = 1", (err, row) => {
+          if (!row) {
+             db.run(`INSERT INTO email_settings (id, host, port, secure, user, pass, fromEmail) 
+                     VALUES (1, 'smtp.example.com', 465, 1, 'user', 'pass', 'noreply@example.com')`);
+          }
+        });
+      }
+    });
+
+    // 4. Movements
     db.run(`CREATE TABLE IF NOT EXISTS movements (
       id TEXT PRIMARY KEY,
       employeeId TEXT,
@@ -56,14 +77,19 @@ export const initDb = () => {
       durationNetto REAL,
       amount REAL,
       isManual INTEGER
+    )`);
+
+    // 5. System Logs
+    db.run(`CREATE TABLE IF NOT EXISTS system_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT,
+      level TEXT,
+      message TEXT,
+      details TEXT
     )`, (err) => {
-        if (err) {
-            console.error("DB Init Error:", err);
-            return;
-        }
-        
-        // Default Config setzen
-        db.get("SELECT id FROM config WHERE id = 1", (err, row) => {
+       if(!err) {
+         // Default Config setzen (wenn noch nicht existiert)
+         db.get("SELECT id FROM config WHERE id = 1", (err, row) => {
             if (!row) {
                 const defaultConfig = JSON.stringify({
                 addStartMins: 0,
@@ -74,6 +100,29 @@ export const initDb = () => {
                 console.log("✓ Default Konfiguration erstellt");
             }
         });
+       }
     });
   });
+};
+
+/**
+ * Schreibt einen Log-Eintrag in die Datenbank und löscht alte Einträge,
+ * wenn das Limit (z.B. 1000) überschritten wird.
+ */
+export const addLogEntry = (level, message, details = '') => {
+  const timestamp = new Date().toISOString();
+  
+  // 1. Einfügen
+  db.run(`INSERT INTO system_logs (timestamp, level, message, details) VALUES (?, ?, ?, ?)`, 
+    [timestamp, level, message, typeof details === 'object' ? JSON.stringify(details) : details], 
+    (err) => {
+      if (err) console.error("Logging Error:", err);
+      
+      // 2. Pruning (Nur die neuesten 1000 behalten)
+      // Wir machen das asynchron nach dem Insert, um den Request nicht zu blockieren
+      db.run(`DELETE FROM system_logs WHERE id NOT IN (
+        SELECT id FROM system_logs ORDER BY id DESC LIMIT 1000
+      )`);
+    }
+  );
 };

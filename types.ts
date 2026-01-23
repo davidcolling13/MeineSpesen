@@ -1,3 +1,4 @@
+
 export interface Employee {
   id: string; // Personalnummer
   firstName: string;
@@ -14,6 +15,15 @@ export interface AppConfig {
   addStartMins: number;
   subEndMins: number;
   rules: ExpenseRule[];
+}
+
+export interface EmailConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromEmail: string;
 }
 
 export interface Movement {
@@ -42,4 +52,12 @@ export interface ReportData {
   monthName: string;
   year: number;
   totals: { hours: number; amount: number };
+}
+
+export interface SystemLog {
+  id: number;
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR';
+  message: string;
+  details?: string;
 }

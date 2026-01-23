@@ -1,4 +1,4 @@
-import { Employee, AppConfig, Movement } from '../types';
+import { Employee, AppConfig, Movement, SystemLog, EmailConfig } from '../types';
 
 // Default Data fallback
 const DEFAULT_CONFIG: AppConfig = {
@@ -10,7 +10,8 @@ const DEFAULT_CONFIG: AppConfig = {
 const STORAGE_KEYS = {
   EMPLOYEES: 'ms_employees',
   CONFIG: 'ms_config',
-  MOVEMENTS: 'ms_movements'
+  MOVEMENTS: 'ms_movements',
+  EMAIL: 'ms_email_config'
 };
 
 // --- Local Storage Helpers ---
@@ -113,6 +114,37 @@ export const saveConfig = async (cfg: AppConfig) => {
     console.warn("API unavailable (saveConfig), saving locally.");
   }
   localSet(STORAGE_KEYS.CONFIG, cfg);
+};
+
+// --- EMAIL CONFIG METHODS ---
+
+export const getEmailConfig = async (): Promise<EmailConfig | null> => {
+  try {
+    const res = await fetch('/api/email-report/settings');
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  } catch (e) {
+    return null; 
+  }
+};
+
+export const saveEmailConfig = async (cfg: EmailConfig) => {
+  const res = await fetch('/api/email-report/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg)
+  });
+  if (!res.ok) throw new Error("Save failed");
+  return true;
+};
+
+export const sendTestEmail = async (cfg: EmailConfig) => {
+  const res = await fetch('/api/email-report/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg)
+  });
+  return await res.json();
 };
 
 export const downloadBackup = async () => {
@@ -232,6 +264,26 @@ export const checkApiHealth = async (): Promise<boolean> => {
     const res = await fetch('/api/health');
     // Ensure we actually got JSON back, not an HTML 404 page from GitHub Pages
     return isValidApiResponse(res);
+  } catch {
+    return false;
+  }
+};
+
+// --- LOGGING ---
+export const getSystemLogs = async (limit = 200): Promise<SystemLog[]> => {
+  try {
+    const res = await fetch(`/api/logs?limit=${limit}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+};
+
+export const clearSystemLogs = async () => {
+  try {
+    await fetch('/api/logs', { method: 'DELETE' });
+    return true;
   } catch {
     return false;
   }
