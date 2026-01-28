@@ -9,10 +9,8 @@ const sqlite3 = require('sqlite3').verbose();
 // Pfade berechnen
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Wir sind in /server, Data ist im Root (../data)
 const DATA_DIR = path.join(__dirname, '..', 'data');
 
-// Sicherstellen, dass Data existiert
 if (!fs.existsSync(DATA_DIR)){
     fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -24,8 +22,48 @@ export const db = new sqlite3.Database(DB_PATH, (err) => {
     console.error('❌ KRITISCH: Keine Verbindung zur Datenbank', err);
   } else {
     console.log('✓ Datenbank verbunden:', DB_PATH);
+    // Performance & Integrität Tuning
+    db.run("PRAGMA journal_mode = WAL;"); // Erlaubt gleichzeitiges Lesen/Schreiben
+    db.run("PRAGMA foreign_keys = ON;"); // Erzwingt Datenkonsistenz
+    db.run("PRAGMA synchronous = NORMAL;"); // Performance Boost bei guter Sicherheit
   }
 });
+
+/**
+ * Promise-Wrapper für db.run (Insert, Update, Delete)
+ */
+export const dbRun = (sql, params = []) => {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function(err) {
+            if (err) reject(err);
+            else resolve(this);
+        });
+    });
+};
+
+/**
+ * Promise-Wrapper für db.all (Select All)
+ */
+export const dbAll = (sql, params = []) => {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+};
+
+/**
+ * Promise-Wrapper für db.get (Select One)
+ */
+export const dbGet = (sql, params = []) => {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+};
 
 export const initDb = () => {
   db.serialize(() => {
@@ -54,7 +92,6 @@ export const initDb = () => {
       fromEmail TEXT
     )`, (err) => {
       if (!err) {
-        // Init default email settings if empty
         db.get("SELECT id FROM email_settings WHERE id = 1", (err, row) => {
           if (!row) {
              db.run(`INSERT INTO email_settings (id, host, port, secure, user, pass, fromEmail) 
@@ -88,7 +125,6 @@ export const initDb = () => {
       details TEXT
     )`, (err) => {
        if(!err) {
-         // Default Config setzen (wenn noch nicht existiert)
          db.get("SELECT id FROM config WHERE id = 1", (err, row) => {
             if (!row) {
                 const defaultConfig = JSON.stringify({
@@ -105,24 +141,14 @@ export const initDb = () => {
   });
 };
 
-/**
- * Schreibt einen Log-Eintrag in die Datenbank und löscht alte Einträge,
- * wenn das Limit (z.B. 1000) überschritten wird.
- */
 export const addLogEntry = (level, message, details = '') => {
   const timestamp = new Date().toISOString();
-  
-  // 1. Einfügen
   db.run(`INSERT INTO system_logs (timestamp, level, message, details) VALUES (?, ?, ?, ?)`, 
     [timestamp, level, message, typeof details === 'object' ? JSON.stringify(details) : details], 
     (err) => {
       if (err) console.error("Logging Error:", err);
-      
-      // 2. Pruning (Nur die neuesten 1000 behalten)
-      // Wir machen das asynchron nach dem Insert, um den Request nicht zu blockieren
-      db.run(`DELETE FROM system_logs WHERE id NOT IN (
-        SELECT id FROM system_logs ORDER BY id DESC LIMIT 1000
-      )`);
+      // Async Pruning
+      db.run(`DELETE FROM system_logs WHERE id NOT IN (SELECT id FROM system_logs ORDER BY id DESC LIMIT 1000)`);
     }
   );
 };

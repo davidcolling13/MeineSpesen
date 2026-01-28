@@ -41,7 +41,7 @@ const isValidApiResponse = (res: Response) => {
   return res.ok && contentType && contentType.includes("application/json");
 };
 
-// --- API Methods with Fallback ---
+// --- API Methods ---
 
 export const getEmployees = async (): Promise<Employee[]> => {
   try {
@@ -49,27 +49,24 @@ export const getEmployees = async (): Promise<Employee[]> => {
     if (!isValidApiResponse(res)) throw new Error("API unavailable");
     
     const data = await res.json();
-    // Sync to local
+    // Cache for read-only offline viewing
     localSet(STORAGE_KEYS.EMPLOYEES, data);
     return data;
   } catch (e) {
-    console.warn("API unavailable (getEmployees), using LocalStorage fallback.");
+    console.warn("API unavailable (getEmployees), viewing cached data.");
     return localGet(STORAGE_KEYS.EMPLOYEES, []);
   }
 };
 
 export const saveEmployee = async (emp: Employee) => {
-  try {
-    const res = await fetch('/api/employees', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(emp)
-    });
-    if (!isValidApiResponse(res)) throw new Error("API unavailable");
-  } catch (e) {
-    console.warn("API unavailable (saveEmployee), saving locally.");
-  }
-  // Optimistic / Fallback update
+  const res = await fetch('/api/employees', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(emp)
+  });
+  if (!isValidApiResponse(res)) throw new Error("Speichern fehlgeschlagen: Server nicht erreichbar");
+  
+  // Cache Update
   const current = localGet<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
   const idx = current.findIndex(e => e.id === emp.id);
   if (idx >= 0) current[idx] = emp;
@@ -78,12 +75,10 @@ export const saveEmployee = async (emp: Employee) => {
 };
 
 export const deleteEmployee = async (id: string) => {
-  try {
-    const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
-    if (!isValidApiResponse(res)) throw new Error("API unavailable");
-  } catch (e) {
-    console.warn("API unavailable (deleteEmployee), updating locally.");
-  }
+  const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+  if (!isValidApiResponse(res)) throw new Error("Löschen fehlgeschlagen: Server nicht erreichbar");
+
+  // Cache Update
   const current = localGet<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
   localSet(STORAGE_KEYS.EMPLOYEES, current.filter(e => e.id !== id));
 };
@@ -97,22 +92,18 @@ export const getConfig = async (): Promise<AppConfig> => {
     localSet(STORAGE_KEYS.CONFIG, data);
     return data;
   } catch (e) {
-    console.warn("API unavailable (getConfig), using LocalStorage fallback.");
+    console.warn("API unavailable (getConfig), using cached fallback.");
     return localGet(STORAGE_KEYS.CONFIG, DEFAULT_CONFIG);
   }
 };
 
 export const saveConfig = async (cfg: AppConfig) => {
-  try {
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cfg)
-    });
-    if (!isValidApiResponse(res)) throw new Error("API unavailable");
-  } catch (e) {
-    console.warn("API unavailable (saveConfig), saving locally.");
-  }
+  const res = await fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg)
+  });
+  if (!isValidApiResponse(res)) throw new Error("Speichern fehlgeschlagen: Server nicht erreichbar");
   localSet(STORAGE_KEYS.CONFIG, cfg);
 };
 
@@ -134,7 +125,7 @@ export const saveEmailConfig = async (cfg: EmailConfig) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cfg)
   });
-  if (!res.ok) throw new Error("Save failed");
+  if (!res.ok) throw new Error("Speichern fehlgeschlagen: Server nicht erreichbar");
   return true;
 };
 
@@ -157,7 +148,6 @@ export const downloadBackup = async () => {
     const a = document.createElement('a');
     a.href = url;
     
-    // Versuchen, Dateinamen aus Header zu lesen, sonst Default
     const contentDisposition = res.headers.get('Content-Disposition');
     let fileName = `meinespesen_backup_${new Date().toISOString().slice(0,10)}.db`;
     if (contentDisposition) {
@@ -187,24 +177,21 @@ export const getMovements = async (): Promise<Movement[]> => {
     localSet(STORAGE_KEYS.MOVEMENTS, data);
     return data;
   } catch (e) {
-    console.warn("API unavailable (getMovements), using LocalStorage fallback.");
+    console.warn("API unavailable (getMovements), using cached fallback.");
     return localGet(STORAGE_KEYS.MOVEMENTS, []);
   }
 };
 
 export const saveMovements = async (movements: Movement[]) => {
-  try {
-    const res = await fetch('/api/movements/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(movements)
-    });
-    if (!isValidApiResponse(res)) throw new Error("API unavailable");
-  } catch (e) {
-     console.warn("API unavailable (saveMovements), saving locally.");
-  }
+  // CRITICAL: No fallback here to prevent split-brain.
+  const res = await fetch('/api/movements/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(movements)
+  });
+  if (!isValidApiResponse(res)) throw new Error("Server Fehler beim Speichern.");
   
-  // Merge logic for local storage
+  // Cache Update only on success
   const current = localGet<Movement[]>(STORAGE_KEYS.MOVEMENTS, []);
   const map = new Map(current.map(m => [m.id, m]));
   movements.forEach(m => map.set(m.id, m));
@@ -212,17 +199,14 @@ export const saveMovements = async (movements: Movement[]) => {
 };
 
 export const updateMovement = async (m: Movement) => {
-  try {
-    const res = await fetch('/api/movements/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(m)
-    });
-    if (!isValidApiResponse(res)) throw new Error("API unavailable");
-  } catch (e) {
-    console.warn("API unavailable (updateMovement), saving locally.");
-  }
+  const res = await fetch('/api/movements/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(m)
+  });
+  if (!isValidApiResponse(res)) throw new Error("Update fehlgeschlagen: Server nicht erreichbar");
   
+  // Cache Update
   const current = localGet<Movement[]>(STORAGE_KEYS.MOVEMENTS, []);
   const idx = current.findIndex(cur => cur.id === m.id);
   if (idx >= 0) current[idx] = m;
@@ -231,16 +215,10 @@ export const updateMovement = async (m: Movement) => {
 };
 
 export const deleteMovement = async (id: string) => {
-    // Versuch, über API zu löschen
-    try {
-        const res = await fetch(`/api/movements/${id}`, { method: 'DELETE' });
-        // 404 ist auch okay (schon weg)
-        if (!res.ok && res.status !== 404) throw new Error("API error");
-    } catch (e) {
-        console.warn("API unavailable (deleteMovement), deleting locally only.");
-    }
+    const res = await fetch(`/api/movements/${id}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) throw new Error("Löschen fehlgeschlagen: Server Fehler");
     
-    // Immer lokal synchronisieren
+    // Cache Update
     const current = localGet<Movement[]>(STORAGE_KEYS.MOVEMENTS, []);
     const filtered = current.filter(m => m.id !== id);
     localSet(STORAGE_KEYS.MOVEMENTS, filtered);
@@ -254,7 +232,6 @@ export const cleanupOldData = async (beforeDate: string) => {
     if (!isValidApiResponse(res)) throw new Error("API unavailable");
     return await res.json();
   } catch (e) {
-    console.warn("API unavailable (cleanupOldData). Local cleanup logic optional.");
     return { success: false, error: 'Offline or API error' };
   }
 };
@@ -262,7 +239,6 @@ export const cleanupOldData = async (beforeDate: string) => {
 export const checkApiHealth = async (): Promise<boolean> => {
   try {
     const res = await fetch('/api/health');
-    // Ensure we actually got JSON back, not an HTML 404 page from GitHub Pages
     return isValidApiResponse(res);
   } catch {
     return false;
@@ -287,4 +263,14 @@ export const clearSystemLogs = async () => {
   } catch {
     return false;
   }
+};
+
+// --- SYSTEM ---
+export const triggerSystemUpdate = async () => {
+  const res = await fetch('/api/system/update', {
+    method: 'POST'
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Update failed');
+  return data;
 };

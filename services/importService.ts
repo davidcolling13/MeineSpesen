@@ -7,12 +7,16 @@ interface ImportResult {
   logs: string[];
 }
 
-// Helper: ID Generation
+// Helper: ID Generation (Robust)
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  // Fallback, aber besser als Math.random() pur
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 };
 
 // Helper: Read File
@@ -30,7 +34,8 @@ const cleanId = (id: string) => {
 const normalizeDate = (dateStr: string) => {
   if (!dateStr) return '';
   const cleanDate = dateStr.trim();
-  if (cleanDate.includes('.')) {
+  // Format DD.MM.YYYY
+  if (cleanDate.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) {
     const parts = cleanDate.split('.');
     if (parts.length < 3) return cleanDate;
     const [d, m, y] = parts;
@@ -49,25 +54,20 @@ export const processImportFiles = async (
   const addLog = (msg: string) => logs.push(msg);
 
   addLog(`🚀 Start Import-Vorgang`);
-  addLog(`ℹ️ Umgebung: ${typeof crypto !== 'undefined' && crypto.randomUUID ? 'Secure Context' : 'Legacy Context'}`);
-
+  
   try {
     const movementMap = new Map<string, Movement>();
 
-    // Bestehende Daten laden, um Dubletten zu vermeiden oder zu aktualisieren
+    // Bestehende Daten laden
     existingMovements.forEach(m => movementMap.set(`${m.employeeId}_${m.date}`, m));
-    addLog(`💾 ${existingMovements.length} bestehende Einträge im Speicher.`);
+    addLog(`💾 ${existingMovements.length} bestehende Einträge im Speicher berücksichtigt.`);
 
-    const dispoKeys = new Set<string>();
-    const timeKeys = new Set<string>();
+    let dispoCount = 0;
 
     // --- 1. DISPO ANALYSE ---
     addLog(`\n📂 Verarbeite Dispo-Datei: ${dispoFile.name}`);
     const dispoLines = await readFileLines(dispoFile);
-    addLog(`   Zeilen gelesen: ${dispoLines.length}`);
     
-    let dispoCount = 0;
-
     dispoLines.forEach((line) => {
       const trimmed = line.trim();
       if (trimmed.startsWith('Datum') || trimmed.startsWith('---') || trimmed.startsWith('SPESENEXPORT') || trimmed.startsWith('Zeitraum')) {
@@ -79,7 +79,6 @@ export const processImportFiles = async (
       let location = '';
 
       // Regex für Berichte (Dispo Datei Format: DD.MM.YYYY ID Ort)
-      // Erwartet: Datum (Leerzeichen) ID (Leerzeichen) Rest
       const reportMatch = trimmed.match(/^(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d+)\s+(.+)$/);
 
       if (reportMatch) {
@@ -88,17 +87,13 @@ export const processImportFiles = async (
         const rawContent = reportMatch[3].trim();
         
         // Versuche "Ladestelle" und "Ort" zu trennen
-        // Wir nutzen mind. 3 Leerzeichen als Trenner, da die Datei sehr breite Spalten hat.
-        // Das verhindert falsches Trennen bei Tippfehlern (doppelte Leerzeichen) im Namen.
         const parts = rawContent.split(/\s{3,}/);
-        
         if (parts.length >= 2) {
-            location = parts.join(' - '); // "Kieswerk Rhiem - Erftstadt-Erp"
+            location = parts.join(' - ');
         } else {
             location = rawContent;
         }
       } 
-      // CSV Fallback entfernt, da die Dispo-Datei strikt textbasiert ist und wir Verwechslungen mit der Zeitdatei vermeiden wollen.
 
       if (!empId || !dateStr) return;
 
@@ -109,8 +104,7 @@ export const processImportFiles = async (
       if (location === '---' || location.match(/^---+$/)) location = '';
 
       const key = `${empId}_${dateStr}`;
-      dispoKeys.add(key);
-
+      
       let record = movementMap.get(key);
       if (!record) {
         record = {
@@ -124,7 +118,7 @@ export const processImportFiles = async (
         };
       }
 
-      // Orte zusammenführen
+      // Orte mergen
       let currentLocs = record.location ? record.location.split(' | ').filter(l => l) : [];
       if (location && !currentLocs.includes(location)) {
         currentLocs.push(location);
@@ -134,7 +128,7 @@ export const processImportFiles = async (
       movementMap.set(key, record);
       dispoCount++;
     });
-    addLog(`✅ Dispo erkannt: ${dispoCount} Einträge`);
+    addLog(`✅ Dispo erkannt: ${dispoCount} Zeilen verarbeitet`);
 
     // --- 2. ZEIT ANALYSE ---
     addLog(`\n📂 Verarbeite Zeit-Datei: ${timeFile.name}`);
@@ -158,7 +152,6 @@ export const processImportFiles = async (
           idxDate = parts.indexOf('Datum');
           idxStart = parts.indexOf('Kommt');
           idxEnd = parts.indexOf('Geht');
-          addLog(`ℹ️ Spalten erkannt: ID=${idxId}, Datum=${idxDate}, Kommt=${idxStart}, Geht=${idxEnd}`);
           return;
       }
 
@@ -166,22 +159,19 @@ export const processImportFiles = async (
       if (parts.length <= Math.max(idxId, idxDate, idxStart, idxEnd)) return;
 
       const rawDate = parts[idxDate];
-      
-      // Validierung: Ist es ein Datum? (Ignoriert Summenzeilen am Ende des Blocks)
       if (!rawDate || !rawDate.match(/^\d{1,2}\.\d{1,2}\.\d{4}$/)) return;
 
       const start = parts[idxStart]?.trim();
       const end = parts[idxEnd]?.trim();
 
-      // Ignoriere Tage ohne Arbeit (00:00)
+      // Ignoriere Tage ohne Arbeit
       if (!start || !end || start === '00:00' || end === '00:00') return;
 
       const empId = cleanId(parts[idxId]);
       const dateStr = normalizeDate(rawDate);
       
       const key = `${empId}_${dateStr}`;
-      timeKeys.add(key);
-
+      
       let record = movementMap.get(key);
       
       // Falls Dispo fehlt, erstellen wir einen neuen Eintrag (nur Zeit)
@@ -190,7 +180,7 @@ export const processImportFiles = async (
           id: generateId(),
           employeeId: empId,
           date: dateStr,
-          location: '', // Kein Ort bekannt
+          location: '', 
           startTimeRaw: '', endTimeRaw: '',
           startTimeCorr: '', endTimeCorr: '',
           durationNetto: 0, amount: 0, isManual: false
@@ -199,10 +189,11 @@ export const processImportFiles = async (
           if (record.location) mergeCount++;
       }
 
+      // Zeiten setzen
       record.startTimeRaw = start;
       record.endTimeRaw = end;
 
-      // Berechnung durchführen
+      // Berechnung durchführen, wenn nicht manuell überschrieben
       if (!record.isManual) {
           const calculated = calculateMovement(start, end, config);
           record.startTimeCorr = calculated.startCorr;
@@ -218,24 +209,26 @@ export const processImportFiles = async (
     addLog(`✅ Zeiten erkannt: ${timeCount} Einträge`);
 
     // --- DIAGNOSE ---
-    addLog(`\n📊 Zusammenfassung:`);
-    
     if (mergeCount === 0 && dispoCount > 0 && timeCount > 0) {
-      addLog(`❌ FEHLER: 0 Übereinstimmungen gefunden!`);
-      addLog(`Tipp: Prüfen Sie Datum (01.01. vs 1.1.) und Personalnummer.`);
+      addLog(`⚠️ WARNUNG: 0 Übereinstimmungen gefunden! IDs oder Datumsformate prüfen.`);
     } else if (mergeCount > 0) {
-      addLog(`✅ ERFOLG: ${mergeCount} Datensätze vollständig verknüpft.`);
+      addLog(`✅ SUCCESS: ${mergeCount} Datensätze vollständig verknüpft.`);
     }
 
+    // Filtern: Nur Einträge zurückgeben, die tatsächlich Zeiten oder Orte haben
+    const finalMovements = Array.from(movementMap.values()).filter(m => 
+       (m.startTimeRaw && m.endTimeRaw) || m.location
+    );
+
     return {
-      success: timeCount > 0 || dispoCount > 0,
-      movements: Array.from(movementMap.values()),
+      success: finalMovements.length > 0,
+      movements: finalMovements,
       logs
     };
 
   } catch (e: any) {
     console.error(e);
-    addLog(`❌ KRITISCHER FEHLER: ${e.message}`);
+    addLog(`❌ FEHLER: ${e.message}`);
     return {
       success: false,
       movements: [],

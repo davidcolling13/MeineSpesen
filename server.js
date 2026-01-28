@@ -10,6 +10,7 @@ import movementRoutes from './server/routes/movements.js';
 import configRoutes from './server/routes/config.js';
 import emailRoutes from './server/routes/email.js';
 import logsRoutes from './server/routes/logs.js';
+import systemRoutes from './server/routes/system.js';
 
 // ES Module paths
 const __filename = fileURLToPath(import.meta.url);
@@ -29,8 +30,6 @@ app.use(express.json({ limit: '50mb' }));
 app.use((req, res, next) => {
   // Ignorieren von häufigen Polling-Anfragen im Log, um Rauschen zu reduzieren
   if (!req.url.includes('/api/health') && !req.url.includes('/api/logs')) {
-    // Wir loggen nur Methoden, die Daten verändern oder wichtige GETs
-    // Optional: Alles loggen
     const method = req.method;
     if (method !== 'GET' || req.url.includes('/download') || req.url.includes('/backup')) {
        addLogEntry('INFO', `API Request: ${method} ${req.url}`);
@@ -47,13 +46,14 @@ app.use('/api/movements', movementRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/email-report', emailRoutes);
 app.use('/api/logs', logsRoutes);
+app.use('/api/system', systemRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Static Route for Favicon (served from data dir for persistence/customization if needed)
+// Static Route for Favicon
 app.get('/favicon.png', (req, res) => {
   const faviconPath = path.join(__dirname, 'data', 'favicon.png');
   res.sendFile(faviconPath, (err) => {
