@@ -10,23 +10,5 @@ services:
       - "600:3001"
     environment:
       - API_KEY=${API_KEY:-}
-      # Token für die Kommunikation mit dem Update-Service
-      - UPDATE_TOKEN=meinespesen-internal-secret
     volumes:
       - ./data:/app/data
-    depends_on:
-      - updater
-
-  updater:
-    image: containrrr/watchtower
-    container_name: meinespesen-updater
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --http-api-update
-    environment:
-      - WATCHTOWER_HTTP_API_UPDATE=true
-      - WATCHTOWER_HTTP_API_TOKEN=meinespesen-internal-secret
-      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=false # Kein automatisches Polling
-      - WATCHTOWER_CLEANUP=true # Alte Images löschen
-    ports:
-      - "8081:8080" # Optional: API von außen erreichbar machen (nicht zwingend nötig, da app intern kommuniziert)

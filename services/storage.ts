@@ -264,13 +264,3 @@ export const clearSystemLogs = async () => {
     return false;
   }
 };
-
-// --- SYSTEM ---
-export const triggerSystemUpdate = async () => {
-  const res = await fetch('/api/system/update', {
-    method: 'POST'
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Update failed');
-  return data;
-};

@@ -10,7 +10,6 @@ import movementRoutes from './server/routes/movements.js';
 import configRoutes from './server/routes/config.js';
 import emailRoutes from './server/routes/email.js';
 import logsRoutes from './server/routes/logs.js';
-import systemRoutes from './server/routes/system.js';
 
 // ES Module paths
 const __filename = fileURLToPath(import.meta.url);
@@ -46,7 +45,6 @@ app.use('/api/movements', movementRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/email-report', emailRoutes);
 app.use('/api/logs', logsRoutes);
-app.use('/api/system', systemRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {

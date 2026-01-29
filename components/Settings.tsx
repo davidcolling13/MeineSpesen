@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { getConfig, saveConfig, cleanupOldData, downloadBackup, getSystemLogs, clearSystemLogs, getEmailConfig, saveEmailConfig, sendTestEmail, triggerSystemUpdate } from '../services/storage';
+import { getConfig, saveConfig, cleanupOldData, downloadBackup, getSystemLogs, clearSystemLogs, getEmailConfig, saveEmailConfig, sendTestEmail } from '../services/storage';
 import { AppConfig, SystemLog, EmailConfig } from '../types';
-import { Save, Trash2, AlertTriangle, Database, Download, FileText, RefreshCw, Mail, Sliders, Wrench, ArrowUpCircle } from 'lucide-react';
+import { Save, Trash2, AlertTriangle, Database, Download, FileText, RefreshCw, Mail, Sliders, Wrench } from 'lucide-react';
 
 type SettingsTab = 'general' | 'email' | 'maintenance';
 
@@ -32,7 +32,6 @@ const Settings: React.FC = () => {
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [logFilter, setLogFilter] = useState<'ALL' | 'ERROR' | 'WARN'>('ALL');
-  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -120,19 +119,6 @@ const Settings: React.FC = () => {
       } else {
         alert('Fehler beim Löschen. Bitte Serververbindung prüfen.');
       }
-    }
-  };
-
-  const handleSystemUpdate = async () => {
-    if (confirm("Möchten Sie jetzt auf Updates prüfen und diese installieren? Der Server wird neu gestartet, die Anwendung ist für ca. 30-60 Sekunden nicht erreichbar.")) {
-      setIsUpdating(true);
-      try {
-        const res = await triggerSystemUpdate();
-        alert(res.message);
-      } catch (e: any) {
-        alert("Update Fehler: " + e.message);
-      }
-      setIsUpdating(false);
     }
   };
 
@@ -353,30 +339,7 @@ const Settings: React.FC = () => {
       {/* --- CONTENT: MAINTENANCE --- */}
       {activeTab === 'maintenance' && (
         <div className="space-y-6 animate-fade-in">
-           {/* Update Section */}
-           <div className="bg-indigo-50 p-6 rounded-lg shadow-sm border border-indigo-100">
-             <div className="flex items-start gap-3">
-               <div className="bg-indigo-100 p-2 rounded-full">
-                 <ArrowUpCircle className="text-indigo-600" size={24} />
-               </div>
-               <div className="flex-1">
-                 <h3 className="text-lg font-semibold text-indigo-900 mb-2">Software Update</h3>
-                 <p className="text-sm text-indigo-800 mb-4">
-                   Prüfen Sie, ob eine neue Version auf GitHub verfügbar ist. Das System wird bei Verfügbarkeit aktualisiert und neu gestartet.
-                   <br/><span className="text-xs opacity-70">(Erfordert Internetverbindung des Servers)</span>
-                 </p>
-                 <button 
-                    onClick={handleSystemUpdate}
-                    disabled={isUpdating}
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-                 >
-                    {isUpdating ? <RefreshCw className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-                    <span>{isUpdating ? 'Update wird gestartet...' : 'Auf Update prüfen & Installieren'}</span>
-                 </button>
-               </div>
-             </div>
-           </div>
-
+           
            {/* Backup & Cleanup */}
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-green-50 p-6 rounded-lg shadow-sm border border-green-100">
