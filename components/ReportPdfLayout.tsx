@@ -117,6 +117,14 @@ interface ReportPdfProps {
 
 const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
     const { movements, employee, monthName, year, totals } = data;
+    
+    // Filter empty records (No duration, no amount, no location)
+    const activeMovements = movements.filter(m => 
+        m.durationNetto > 0 || 
+        m.amount > 0 || 
+        (m.location && m.location.trim().length > 0)
+    );
+
     return (
     <Page size="A4" style={styles.page}>
       
@@ -144,7 +152,7 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
       </View>
 
       {/* Table Body */}
-      {movements.map((m) => {
+      {activeMovements.map((m) => {
           // Format date DD.MM.YYYY
           const d = new Date(m.date);
           const dateStr = `${d.getDate().toString().padStart(2, '0')}.${(d.getMonth()+1).toString().padStart(2, '0')}.${d.getFullYear()}`;
@@ -180,13 +188,6 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
         </View>
       </View>
       {/* Total hours removed as requested */}
-
-      {/* Signature - Compact, only Employee */}
-      <View style={styles.signatureContainer}>
-        <View style={styles.signatureLine}>
-            <Text>Datum, Unterschrift Mitarbeiter</Text>
-        </View>
-      </View>
 
     </Page>
     );

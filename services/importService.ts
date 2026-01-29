@@ -86,12 +86,23 @@ export const processImportFiles = async (
         empId = reportMatch[2];
         const rawContent = reportMatch[3].trim();
         
-        // Versuche "Ladestelle" und "Ort" zu trennen
-        const parts = rawContent.split(/\s{3,}/);
+        // Versuche "Ladestelle" und "Ort" zu trennen.
+        // Wir nehmen an, der erste Teil ist der Name (z.B. "Mustermann, Max") und danach folgen Orte.
+        // Wir splitten bei 2 oder mehr Leerzeichen.
+        const parts = rawContent.split(/\s{2,}/);
+        
         if (parts.length >= 2) {
+            // Wir entfernen den ersten Teil (den Namen)
+            parts.shift();
             location = parts.join(' - ');
         } else {
-            location = rawContent;
+            // Fallback: Wenn nur ein Teil da ist, prüfen wir, ob es wie ein Name aussieht (enthält Komma).
+            // Wenn ja, ist kein Ort vorhanden. Wenn nein, übernehmen wir es als Ort.
+            if (rawContent.includes(',')) {
+                location = '';
+            } else {
+                location = rawContent;
+            }
         }
       } 
 
