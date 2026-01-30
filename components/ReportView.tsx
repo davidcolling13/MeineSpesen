@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig, saveMovements } from '../services/storage';
 import { Movement, Employee, AppConfig, ReportData } from '../types';
-import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2, CheckSquare, Square, MapPin } from 'lucide-react';
+import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2, CheckSquare, Square, MapPin, Plus } from 'lucide-react';
 import { calculateMovement } from '../services/calculation';
 import { generateSingleReportPdf, generateBulkReportPdf } from '../services/pdfGenerator';
 import JSZip from 'jszip';
@@ -25,6 +25,15 @@ const ReportView: React.FC = () => {
   // Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Movement>>({});
+
+  // Add New State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addForm, setAddForm] = useState<{
+      date: string;
+      location: string;
+      startTime: string;
+      endTime: string;
+  }>({ date: '', location: '', startTime: '', endTime: '' });
 
   // Bulk Edit State
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -75,6 +84,12 @@ const ReportView: React.FC = () => {
   }, [selectedEmpId, movementsForMonth, employees, selectedMonth, selectedYear]);
 
   const monthName = new Date(selectedYear, selectedMonth).toLocaleString('de-DE', { month: 'long' });
+
+  // --- Helper ---
+  const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return Math.random().toString(36).substring(2, 15);
+  };
 
   // --- Bulk Selection Handlers ---
   const toggleSelectAll = () => {
@@ -131,6 +146,52 @@ const ReportView: React.FC = () => {
 
     setAllMovements(prev => prev.filter(m => !selectedRowIds.has(m.id)));
     setSelectedRowIds(new Set());
+  };
+
+  // --- Add Logic ---
+  const handleOpenAddModal = () => {
+      // Default date to first of selected month/year
+      const defaultDate = new Date(selectedYear, selectedMonth, 1).toISOString().split('T')[0];
+      setAddForm({
+          date: defaultDate,
+          location: '',
+          startTime: '06:00',
+          endTime: '16:00'
+      });
+      setIsAddModalOpen(true);
+  };
+
+  const handleCreateMovement = async () => {
+      if (!config || !selectedEmpId) return;
+      if (!addForm.date || !addForm.startTime || !addForm.endTime) {
+          alert("Bitte Datum und Zeiten ausfüllen.");
+          return;
+      }
+
+      // Calculate based on manual input (we treat manual input as corrected time usually, 
+      // but to use the calculator we pass them as is. If we want 0 correction for manual entries,
+      // we create a temporary config).
+      // Here we assume manual entry = corrected time entry.
+      const tempConfig: AppConfig = { ...config, addStartMins: 0, subEndMins: 0 };
+      const calculated = calculateMovement(addForm.startTime, addForm.endTime, tempConfig);
+
+      const newMovement: Movement = {
+          id: generateId(),
+          employeeId: selectedEmpId,
+          date: addForm.date,
+          location: addForm.location,
+          startTimeRaw: addForm.startTime, // Keeping raw same as corr for manual
+          endTimeRaw: addForm.endTime,
+          startTimeCorr: calculated.startCorr,
+          endTimeCorr: calculated.endCorr,
+          durationNetto: calculated.duration,
+          amount: calculated.amount,
+          isManual: true
+      };
+
+      await saveMovements([newMovement]);
+      setAllMovements(prev => [...prev, newMovement]);
+      setIsAddModalOpen(false);
   };
 
   // --- Editing Logic ---
@@ -401,6 +462,14 @@ const ReportView: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                          <button 
+                            onClick={handleOpenAddModal}
+                            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm transition-colors mr-2 shadow-sm"
+                         >
+                            <Plus size={16} />
+                            Neuer Eintrag
+                         </button>
+
+                         <button 
                             onClick={handlePrintSingle}
                             disabled={isPrintingSingle}
                             className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800 text-sm disabled:opacity-50 transition-colors"
@@ -600,6 +669,76 @@ const ReportView: React.FC = () => {
              </div>
         )}
       </div>
+
+      {/* CREATE NEW MODAL */}
+      {isAddModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in">
+                  <div className="bg-gray-50 border-b p-4 flex justify-between items-center">
+                      <h3 className="font-bold text-lg text-gray-800">Neuen Eintrag erstellen</h3>
+                      <button onClick={() => setIsAddModalOpen(false)} className="text-gray-500 hover:text-gray-700">
+                          <X size={20} />
+                      </button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Datum</label>
+                          <input 
+                              type="date" 
+                              className="w-full border rounded p-2"
+                              value={addForm.date}
+                              onChange={e => setAddForm({...addForm, date: e.target.value})}
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Ort</label>
+                          <input 
+                              type="text" 
+                              className="w-full border rounded p-2"
+                              placeholder="z.B. Baustelle Köln"
+                              value={addForm.location}
+                              onChange={e => setAddForm({...addForm, location: e.target.value})}
+                          />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Beginn</label>
+                              <input 
+                                  type="time" 
+                                  className="w-full border rounded p-2"
+                                  value={addForm.startTime}
+                                  onChange={e => setAddForm({...addForm, startTime: e.target.value})}
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Ende</label>
+                              <input 
+                                  type="time" 
+                                  className="w-full border rounded p-2"
+                                  value={addForm.endTime}
+                                  onChange={e => setAddForm({...addForm, endTime: e.target.value})}
+                              />
+                          </div>
+                      </div>
+                  </div>
+                  <div className="bg-gray-50 border-t p-4 flex justify-end gap-3">
+                      <button 
+                          onClick={() => setIsAddModalOpen(false)}
+                          className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg"
+                      >
+                          Abbrechen
+                      </button>
+                      <button 
+                          onClick={handleCreateMovement}
+                          className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg shadow-sm"
+                      >
+                          Speichern
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };
