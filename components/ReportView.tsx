@@ -1,32 +1,41 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { getMovements, getEmployees, updateMovement, deleteMovement, getConfig, saveMovements } from '../services/storage';
-import { Movement, Employee, AppConfig, ReportData } from '../types';
+import React, { useState } from 'react';
+import { Movement, ReportData } from '../types';
 import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2, CheckSquare, Square, MapPin, Plus } from 'lucide-react';
-import { calculateMovement } from '../services/calculation';
 import { generateSingleReportPdf, generateBulkReportPdf } from '../services/pdfGenerator';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
+import { useReportLogic } from '../hooks/useReportLogic';
 
 const ReportView: React.FC = () => {
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedEmpId, setSelectedEmpId] = useState<string>('');
-  
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [allMovements, setAllMovements] = useState<Movement[]>([]);
-  const [config, setConfig] = useState<AppConfig | null>(null);
+  // Use Custom Hook for Logic
+  const {
+    selectedMonth, setSelectedMonth,
+    selectedYear, setSelectedYear,
+    selectedEmpId, setSelectedEmpId,
+    employees,
+    currentReportData,
+    movementsForMonth,
+    addEntry,
+    updateEntry,
+    removeEntry,
+    bulkDelete,
+    bulkUpdateLocation,
+    getAllReportsData,
+    config
+  } = useReportLogic();
 
+  // --- UI State (Local) ---
   const [isSending, setIsSending] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
   const [isPrintingAll, setIsPrintingAll] = useState(false);
   const [isPrintingSingle, setIsPrintingSingle] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Edit State
+  // Edit UI State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Movement>>({});
 
-  // Add New State
+  // Add UI State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState<{
       date: string;
@@ -35,60 +44,15 @@ const ReportView: React.FC = () => {
       endTime: string;
   }>({ date: '', location: '', startTime: '', endTime: '' });
 
-  // Bulk Edit State
+  // Bulk UI State
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [bulkLocation, setBulkLocation] = useState('');
 
-  const refreshData = async () => {
-    const [e, m, c] = await Promise.all([getEmployees(), getMovements(), getConfig()]);
-    setEmployees(e);
-    setAllMovements(m);
-    setConfig(c);
-  };
-
-  useEffect(() => {
-    refreshData();
-  }, []);
-
-  // --- Filtering Logic ---
-  const movementsForMonth = useMemo(() => {
-     return allMovements.filter(m => {
-        const d = new Date(m.date);
-        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
-     });
-  }, [allMovements, selectedMonth, selectedYear]);
-
-  const currentReportData: ReportData | null = useMemo(() => {
-    if (!selectedEmpId) return null;
-    const emp = employees.find(e => e.id === selectedEmpId);
-    if (!emp) return null;
-
-    const movs = movementsForMonth.filter(m => m.employeeId === selectedEmpId)
-           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
-    const totals = movs.reduce((acc, curr) => ({
-      hours: acc.hours + curr.durationNetto,
-      amount: acc.amount + curr.amount
-    }), { hours: 0, amount: 0 });
-
-    const monthName = new Date(selectedYear, selectedMonth).toLocaleString('de-DE', { month: 'long' });
-
-    return {
-      employee: emp,
-      movements: movs,
-      monthName,
-      year: selectedYear,
-      totals
-    };
-
-  }, [selectedEmpId, movementsForMonth, employees, selectedMonth, selectedYear]);
-
-  const monthName = new Date(selectedYear, selectedMonth).toLocaleString('de-DE', { month: 'long' });
-
-  // --- Helper ---
-  const generateId = () => {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-    return Math.random().toString(36).substring(2, 15);
+  // --- Helper for Date Display ---
+  const formatDateDisplay = (isoDate: string) => {
+     if (!isoDate) return '';
+     const [y, m, d] = isoDate.split('-');
+     return `${d}.${m}.${y}`;
   };
 
   // --- Bulk Selection Handlers ---
@@ -115,22 +79,7 @@ const ReportView: React.FC = () => {
     if (!bulkLocation || selectedRowIds.size === 0) return;
     if (!confirm(`Möchten Sie den Ort für ${selectedRowIds.size} Einträge auf "${bulkLocation}" ändern?`)) return;
 
-    const updates: Movement[] = [];
-    allMovements.forEach(m => {
-      if (selectedRowIds.has(m.id)) {
-        updates.push({ ...m, location: bulkLocation, isManual: true });
-      }
-    });
-
-    await saveMovements(updates);
-    
-    // Update local state optimistically
-    setAllMovements(prev => prev.map(m => {
-      if (selectedRowIds.has(m.id)) {
-        return { ...m, location: bulkLocation, isManual: true };
-      }
-      return m;
-    }));
+    await bulkUpdateLocation(selectedRowIds, bulkLocation);
     
     setSelectedRowIds(new Set());
     setBulkLocation('');
@@ -140,18 +89,14 @@ const ReportView: React.FC = () => {
     if (selectedRowIds.size === 0) return;
     if (!confirm(`Möchten Sie ${selectedRowIds.size} Einträge wirklich unwiderruflich löschen?`)) return;
 
-    for (const id of selectedRowIds) {
-      await deleteMovement(id);
-    }
-
-    setAllMovements(prev => prev.filter(m => !selectedRowIds.has(m.id)));
+    await bulkDelete(selectedRowIds);
     setSelectedRowIds(new Set());
   };
 
-  // --- Add Logic ---
+  // --- Add Logic (UI -> Hook) ---
   const handleOpenAddModal = () => {
-      // Default date to first of selected month/year
-      const defaultDate = new Date(selectedYear, selectedMonth, 1).toISOString().split('T')[0];
+      const mStr = (selectedMonth + 1).toString().padStart(2, '0');
+      const defaultDate = `${selectedYear}-${mStr}-01`;
       setAddForm({
           date: defaultDate,
           location: '',
@@ -162,39 +107,15 @@ const ReportView: React.FC = () => {
   };
 
   const handleCreateMovement = async () => {
-      if (!config || !selectedEmpId) return;
       if (!addForm.date || !addForm.startTime || !addForm.endTime) {
           alert("Bitte Datum und Zeiten ausfüllen.");
           return;
       }
-
-      // Calculate based on manual input (we treat manual input as corrected time usually, 
-      // but to use the calculator we pass them as is. If we want 0 correction for manual entries,
-      // we create a temporary config).
-      // Here we assume manual entry = corrected time entry.
-      const tempConfig: AppConfig = { ...config, addStartMins: 0, subEndMins: 0 };
-      const calculated = calculateMovement(addForm.startTime, addForm.endTime, tempConfig);
-
-      const newMovement: Movement = {
-          id: generateId(),
-          employeeId: selectedEmpId,
-          date: addForm.date,
-          location: addForm.location,
-          startTimeRaw: addForm.startTime, // Keeping raw same as corr for manual
-          endTimeRaw: addForm.endTime,
-          startTimeCorr: calculated.startCorr,
-          endTimeCorr: calculated.endCorr,
-          durationNetto: calculated.duration,
-          amount: calculated.amount,
-          isManual: true
-      };
-
-      await saveMovements([newMovement]);
-      setAllMovements(prev => [...prev, newMovement]);
+      await addEntry(addForm.date, addForm.location, addForm.startTime, addForm.endTime);
       setIsAddModalOpen(false);
   };
 
-  // --- Editing Logic ---
+  // --- Editing Logic (UI -> Hook) ---
   const handleEdit = (m: Movement) => {
     setEditingId(m.id);
     setEditForm({ ...m });
@@ -202,39 +123,18 @@ const ReportView: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (confirm('Möchten Sie diesen Datensatz wirklich löschen?')) {
-        await deleteMovement(id);
-        setAllMovements(prev => prev.filter(m => m.id !== id));
+        await removeEntry(id);
     }
   };
 
   const handleSaveEdit = async () => {
-    if (!editingId || !config || !editForm) return;
-
-    const startCorr = editForm.startTimeCorr || '00:00'; 
-    const endCorr = editForm.endTimeCorr || '00:00';
-    const tempConfig: AppConfig = { ...config, addStartMins: 0, subEndMins: 0 };
-    
-    const calculated = calculateMovement(startCorr, endCorr, tempConfig);
-    const original = allMovements.find(m => m.id === editingId)!;
-
-    const updated: Movement = {
-      ...original,
-      location: editForm.location || '',
-      startTimeCorr: startCorr,
-      endTimeCorr: endCorr,
-      durationNetto: calculated.duration,
-      amount: editForm.amount !== undefined ? editForm.amount : calculated.amount,
-      isManual: true
-    };
-
-    await updateMovement(updated);
-    setAllMovements(prev => prev.map(m => m.id === updated.id ? updated : m));
+    if (!editingId) return;
+    await updateEntry(editingId, editForm);
     setEditingId(null);
     setEditForm({});
   };
 
-
-  // --- Individual Actions (Using PDF Generator Service) ---
+  // --- Actions ---
   const handleEmail = async () => {
     if (!currentReportData) return;
     if (!currentReportData.employee.email) {
@@ -244,10 +144,7 @@ const ReportView: React.FC = () => {
     
     setIsSending(true);
     try {
-      // 1. Generate Blob via Service
       const blob = await generateSingleReportPdf(currentReportData);
-      
-      // 2. Convert to Base64 for Transport
       const reader = new FileReader();
       reader.readAsDataURL(blob);
       reader.onloadend = async () => {
@@ -303,39 +200,11 @@ const ReportView: React.FC = () => {
     setIsPrintingSingle(false);
   };
 
-  // --- Bulk Actions Helper ---
-  const generateAllReportsData = (): ReportData[] => {
-      const activeEmployeeIds = new Set(movementsForMonth.map(m => m.employeeId));
-      const reports: ReportData[] = [];
-
-      activeEmployeeIds.forEach(empId => {
-          const emp = employees.find(e => e.id === empId);
-          if (!emp) return;
-
-          const movs = movementsForMonth.filter(m => m.employeeId === empId)
-                        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-          
-          const t = movs.reduce((acc, curr) => ({
-            hours: acc.hours + curr.durationNetto,
-            amount: acc.amount + curr.amount
-          }), { hours: 0, amount: 0 });
-
-          reports.push({
-              employee: emp,
-              movements: movs,
-              monthName,
-              year: selectedYear,
-              totals: t
-          });
-      });
-      return reports;
-  };
-
   // --- Bulk ZIP ---
   const handleBulkZip = async () => {
       setIsZipping(true);
       try {
-          const reports = generateAllReportsData();
+          const reports = getAllReportsData();
           if (reports.length === 0) {
               alert("Keine Daten für diesen Monat vorhanden.");
               setIsZipping(false);
@@ -346,7 +215,6 @@ const ReportView: React.FC = () => {
           const folder = zip.folder(`Spesen_${selectedYear}_${selectedMonth+1}`);
 
           for (const rep of reports) {
-               // Generate single PDF via service
                const blob = await generateSingleReportPdf(rep);
                const fName = `Spesen_${rep.employee.lastName}_${rep.employee.firstName}.pdf`;
                folder?.file(fName, blob);
@@ -366,14 +234,13 @@ const ReportView: React.FC = () => {
   const handleBulkPrint = async () => {
       setIsPrintingAll(true);
       try {
-          const reports = generateAllReportsData();
+          const reports = getAllReportsData();
           if (reports.length === 0) {
               alert("Keine Daten für diesen Monat vorhanden.");
               setIsPrintingAll(false);
               return;
           }
 
-          // Generate merged PDF via service
           const blob = await generateBulkReportPdf(reports);
           const url = URL.createObjectURL(blob);
           window.open(url, '_blank');
@@ -568,7 +435,8 @@ const ReportView: React.FC = () => {
                                             {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
                                           </button>
                                         </td>
-                                        <td className="p-3">{new Date(m.date).toLocaleDateString('de-DE')}</td>
+                                        {/* Use explicit formatter instead of new Date().toLocale... */}
+                                        <td className="p-3">{formatDateDisplay(m.date)}</td>
                                         
                                         {/* Location */}
                                         <td className="p-3">

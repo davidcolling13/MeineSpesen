@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { getConfig, saveMovements, getMovements, getEmployees } from '../services/storage';
 import { processImportFiles } from '../services/importService';
-import { UploadCloud, CheckCircle, Terminal, RefreshCw, Eye, XCircle, ArrowRight } from 'lucide-react';
+import { UploadCloud, CheckCircle, Terminal, RefreshCw, Eye, XCircle } from 'lucide-react';
 import { Movement } from '../types';
 
 const ImportData: React.FC = () => {

@@ -153,9 +153,9 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
 
       {/* Table Body */}
       {activeMovements.map((m) => {
-          // Format date DD.MM.YYYY
-          const d = new Date(m.date);
-          const dateStr = `${d.getDate().toString().padStart(2, '0')}.${(d.getMonth()+1).toString().padStart(2, '0')}.${d.getFullYear()}`;
+          // Format date DD.MM.YYYY manually to avoid timezone shift from "new Date()"
+          const [y, month, d] = m.date.split('-');
+          const dateStr = `${d}.${month}.${y}`;
           
           return (
             <View key={m.id} style={styles.tableRow}>

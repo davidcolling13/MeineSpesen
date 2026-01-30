@@ -116,6 +116,10 @@ export const initDb = () => {
       isManual INTEGER
     )`);
 
+    // INDIZES ERSTELLEN (Wichtig für Performance & Integrität)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_movements_date ON movements(date)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_movements_emp ON movements(employeeId)`);
+
     // 5. System Logs
     db.run(`CREATE TABLE IF NOT EXISTS system_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

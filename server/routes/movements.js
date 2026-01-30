@@ -48,12 +48,14 @@ router.post('/batch', async (req, res) => {
       amount=excluded.amount,
       isManual=excluded.isManual`;
 
+  let stmt = null;
+
   try {
     // 1. Transaktion starten
     await dbRun("BEGIN TRANSACTION");
 
-    // 2. Statements vorbereiten (native sqlite3 statement für Performance in Loop)
-    const stmt = db.prepare(sql);
+    // 2. Statement vorbereiten
+    stmt = db.prepare(sql);
     
     // 3. Loop mit Promise-Wrapping für jedes Statement
     for (const m of movements) {
@@ -70,13 +72,14 @@ router.post('/batch', async (req, res) => {
         });
     }
 
-    // 4. Finalize
+    // 4. Finalize bei Erfolg
     await new Promise((resolve, reject) => {
         stmt.finalize((err) => {
             if (err) reject(err);
             else resolve(true);
         });
     });
+    stmt = null; // Mark as finalized
 
     // 5. Commit
     await dbRun("COMMIT");
@@ -86,6 +89,12 @@ router.post('/batch', async (req, res) => {
 
   } catch (err) {
     console.error("Batch Transaction Error:", err);
+    
+    // Finalize cleanup if failed in loop
+    if (stmt) {
+        stmt.finalize(() => {}); 
+    }
+
     await dbRun("ROLLBACK"); // Alles rückgängig machen bei Fehler
     addLogEntry('ERROR', 'Batch Import fehlgeschlagen, Rollback ausgeführt.', err.message);
     res.status(500).json({ error: "Datenbankfehler beim Import: " + err.message });
