@@ -100,8 +100,6 @@ export const useReportLogic = () => {
     const original = allMovements.find(m => m.id === id);
     if (!original) return;
 
-    // Recalculate if times changed, otherwise just update fields
-    // Note: This logic assumes the updates object contains the *new* values for corrected times if manually edited
     const startCorr = updates.startTimeCorr !== undefined ? updates.startTimeCorr : original.startTimeCorr;
     const endCorr = updates.endTimeCorr !== undefined ? updates.endTimeCorr : original.endTimeCorr;
     
@@ -109,14 +107,33 @@ export const useReportLogic = () => {
     const tempConfig: AppConfig = { ...config, addStartMins: 0, subEndMins: 0 };
     const calculated = calculateMovement(startCorr, endCorr, tempConfig);
 
+    // Determine the final amount:
+    // 1. If user explicitly passed an amount different from what they had before (via UI input), assume manual override.
+    // 2. If user didn't change the amount input (updates.amount === original.amount) but changed the time, we MUST use the calculated amount.
+    // 3. If updates.amount is undefined, we use calculated amount.
+    
+    let newAmount = calculated.amount;
+    
+    if (updates.amount !== undefined) {
+        // Did the amount logic dictate a change due to time?
+        const amountShouldChange = calculated.amount !== original.amount;
+        
+        // If the UI sent the old amount (user didn't touch amount field), but time changed -> Force calculation
+        if (updates.amount === original.amount && amountShouldChange) {
+            newAmount = calculated.amount;
+        } else {
+            // Otherwise, trust the UI (either it was manually changed, or it matches calculation anyway)
+            newAmount = updates.amount;
+        }
+    }
+
     const updatedMovement: Movement = {
       ...original,
       ...updates,
       startTimeCorr: startCorr,
       endTimeCorr: endCorr,
       durationNetto: calculated.duration,
-      // Use provided amount if manually set, otherwise recalculate
-      amount: updates.amount !== undefined ? updates.amount : calculated.amount,
+      amount: newAmount,
       isManual: true
     };
 

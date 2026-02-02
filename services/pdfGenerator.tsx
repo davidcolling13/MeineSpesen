@@ -1,6 +1,6 @@
 import React from 'react';
 import { pdf } from '@react-pdf/renderer';
-import ReportPdfLayout from '../components/ReportPdfLayout';
+import ReportPdfLayout, { OverviewPdfLayout } from '../components/ReportPdfLayout';
 import { ReportData } from '../types';
 
 /**
@@ -16,5 +16,13 @@ export const generateSingleReportPdf = async (data: ReportData): Promise<Blob> =
  */
 export const generateBulkReportPdf = async (reports: ReportData[]): Promise<Blob> => {
   const doc = <ReportPdfLayout reports={reports} />;
+  return await pdf(doc).toBlob();
+};
+
+/**
+ * Generiert eine einzelne Übersichtsseite (Liste aller Mitarbeiter + Summen).
+ */
+export const generateOverviewPdf = async (reports: ReportData[]): Promise<Blob> => {
+  const doc = <OverviewPdfLayout reports={reports} />;
   return await pdf(doc).toBlob();
 };

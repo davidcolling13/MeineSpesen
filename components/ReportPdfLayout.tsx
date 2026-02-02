@@ -53,12 +53,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   tableRow: {
-    margin: 'auto',
     flexDirection: 'row',
     borderBottomWidth: 0.5,
     borderBottomColor: '#cccccc',
-    minHeight: 18,
+    height: 20, // Fixed height for consistency
     alignItems: 'center',
+    margin: 0, // Ensure rows stack tightly
   },
   tableHeader: {
     backgroundColor: '#f3f4f6',
@@ -74,6 +74,12 @@ const styles = StyleSheet.create({
   // colDur needs flex row to align text and icon
   colDur: { width: '10%', flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingRight: 5 },
   colAmt: { width: '15%', textAlign: 'right', paddingRight: 5 },
+
+  // Overview Columns
+  colOvId: { width: '15%', paddingLeft: 5 },
+  colOvName: { width: '55%', paddingLeft: 5 },
+  colOvCount: { width: '15%', textAlign: 'center' },
+  colOvTotal: { width: '15%', textAlign: 'right', paddingRight: 5 },
 
   // Footer
   footerContainer: {
@@ -190,6 +196,62 @@ const ReportPageContent: React.FC<{ data: ReportData }> = ({ data }) => {
       {/* Total hours removed as requested */}
 
     </Page>
+    );
+};
+
+// --- OVERVIEW COMPONENT ---
+export const OverviewPdfLayout: React.FC<{ reports: ReportData[] }> = ({ reports }) => {
+    if (!reports || reports.length === 0) return <Document><Page><Text>No Data</Text></Page></Document>;
+
+    const firstReport = reports[0];
+    const monthName = firstReport.monthName;
+    const year = firstReport.year;
+
+    // Calculate Grand Total
+    const grandTotal = reports.reduce((sum, r) => sum + r.totals.amount, 0);
+
+    return (
+        <Document>
+            <Page size="A4" style={styles.page}>
+                {/* Header */}
+                <View style={styles.headerContainer}>
+                    <View>
+                        <Text style={styles.companyInfo}>Colling Transporte GmbH & Co KG</Text>
+                        <Text style={styles.title}>MONATSÜBERSICHT SPESEN</Text>
+                        <Text style={styles.subtitle}>Zeitraum: {monthName} {year}</Text>
+                    </View>
+                    <View style={styles.employeeInfo}>
+                        <Text style={styles.subtitle}>Erstellt am: {new Date().toLocaleDateString('de-DE')}</Text>
+                    </View>
+                </View>
+
+                {/* Table Header */}
+                <View style={[styles.tableRow, styles.tableHeader]}>
+                    <Text style={styles.colOvId}>PNR</Text>
+                    <Text style={styles.colOvName}>Mitarbeiter</Text>
+                    <Text style={styles.colOvCount}>Einträge</Text>
+                    <Text style={styles.colOvTotal}>Summe (€)</Text>
+                </View>
+
+                {/* Table Body */}
+                {reports.map((r) => (
+                    <View key={r.employee.id} style={styles.tableRow}>
+                        <Text style={styles.colOvId}>{r.employee.id}</Text>
+                        <Text style={styles.colOvName}>{r.employee.lastName}, {r.employee.firstName}</Text>
+                        <Text style={styles.colOvCount}>{r.movements.length}</Text>
+                        <Text style={styles.colOvTotal}>{r.totals.amount.toFixed(2)}</Text>
+                    </View>
+                ))}
+
+                {/* Footer / Grand Total */}
+                <View style={styles.footerContainer}>
+                    <View style={styles.totalBox}>
+                        <Text style={styles.totalLabel}>Gesamtsumme Monat:</Text>
+                        <Text style={styles.totalValue}>{grandTotal.toFixed(2)} €</Text>
+                    </View>
+                </View>
+            </Page>
+        </Document>
     );
 };
 

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Movement, ReportData } from '../types';
-import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2, CheckSquare, Square, MapPin, Plus } from 'lucide-react';
-import { generateSingleReportPdf, generateBulkReportPdf } from '../services/pdfGenerator';
+import { Download, Mail, FileText, Loader2, Printer, Trash2, Save, FileArchive, Check, X, Edit2, CheckSquare, Square, MapPin, Plus, ClipboardList } from 'lucide-react';
+import { generateSingleReportPdf, generateBulkReportPdf, generateOverviewPdf } from '../services/pdfGenerator';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
 import { useReportLogic } from '../hooks/useReportLogic';
+import { calculateMovement } from '../services/calculation';
 
 const ReportView: React.FC = () => {
   // Use Custom Hook for Logic
@@ -28,6 +29,7 @@ const ReportView: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
   const [isPrintingAll, setIsPrintingAll] = useState(false);
+  const [isPrintingOverview, setIsPrintingOverview] = useState(false);
   const [isPrintingSingle, setIsPrintingSingle] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -119,6 +121,27 @@ const ReportView: React.FC = () => {
   const handleEdit = (m: Movement) => {
     setEditingId(m.id);
     setEditForm({ ...m });
+  };
+
+  // Smart Time Change Handler: Recalculates amount immediately when time changes
+  const handleEditTimeChange = (field: 'startTimeCorr' | 'endTimeCorr', value: string) => {
+    if (!config) {
+        setEditForm(prev => ({ ...prev, [field]: value }));
+        return;
+    }
+
+    const currentStart = field === 'startTimeCorr' ? value : (editForm.startTimeCorr || '00:00');
+    const currentEnd = field === 'endTimeCorr' ? value : (editForm.endTimeCorr || '00:00');
+
+    // Use pure calculation (no offset for manual edit)
+    const tempConfig = { ...config, addStartMins: 0, subEndMins: 0 };
+    const calc = calculateMovement(currentStart, currentEnd, tempConfig);
+
+    setEditForm(prev => ({
+        ...prev,
+        [field]: value,
+        amount: calc.amount // Auto-update amount
+    }));
   };
 
   const handleDelete = async (id: string) => {
@@ -252,6 +275,28 @@ const ReportView: React.FC = () => {
       setIsPrintingAll(false);
   };
 
+  // --- Overview Print ---
+  const handlePrintOverview = async () => {
+      setIsPrintingOverview(true);
+      try {
+          const reports = getAllReportsData();
+          if (reports.length === 0) {
+              alert("Keine Daten für diesen Monat vorhanden.");
+              setIsPrintingOverview(false);
+              return;
+          }
+
+          const blob = await generateOverviewPdf(reports);
+          const url = URL.createObjectURL(blob);
+          window.open(url, '_blank');
+
+      } catch (e) {
+          console.error(e);
+          alert("Fehler beim Generieren der Übersicht.");
+      }
+      setIsPrintingOverview(false);
+  };
+
   return (
     <div className="space-y-6 h-full flex flex-col relative">
       {/* Top Filter Bar */}
@@ -298,6 +343,14 @@ const ReportView: React.FC = () => {
 
         {/* Bulk Actions (Global) */}
         <div className="flex gap-2 border-l pl-4 border-gray-200">
+            <button 
+                onClick={handlePrintOverview}
+                disabled={isPrintingOverview || movementsForMonth.length === 0}
+                className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200 text-sm disabled:opacity-50"
+            >
+                {isPrintingOverview ? <Loader2 size={16} className="animate-spin" /> : <ClipboardList size={16} />}
+                <span>{isPrintingOverview ? 'Generiere...' : 'Übersicht drucken'}</span>
+            </button>
             <button 
                 onClick={handleBulkZip}
                 disabled={isZipping || movementsForMonth.length === 0}
@@ -456,7 +509,7 @@ const ReportView: React.FC = () => {
                                                   type="time"
                                                   className="border rounded px-2 py-1 w-24"
                                                   value={editForm.startTimeCorr || ''}
-                                                  onChange={e => setEditForm({...editForm, startTimeCorr: e.target.value})}
+                                                  onChange={e => handleEditTimeChange('startTimeCorr', e.target.value)}
                                                 />
                                             ) : <span className={m.startTimeCorr !== m.startTimeRaw ? 'text-blue-600' : ''}>{m.startTimeCorr}</span>}
                                         </td>
@@ -468,7 +521,7 @@ const ReportView: React.FC = () => {
                                                   type="time"
                                                   className="border rounded px-2 py-1 w-24"
                                                   value={editForm.endTimeCorr || ''}
-                                                  onChange={e => setEditForm({...editForm, endTimeCorr: e.target.value})}
+                                                  onChange={e => handleEditTimeChange('endTimeCorr', e.target.value)}
                                                 />
                                             ) : <span className={m.endTimeCorr !== m.endTimeRaw ? 'text-blue-600' : ''}>{m.endTimeCorr}</span>}
                                         </td>
