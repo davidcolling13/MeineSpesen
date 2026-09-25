@@ -1,0 +1,63 @@
+
+export interface Employee {
+  id: string; // Personalnummer
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+export interface ExpenseRule {
+  hoursThreshold: number;
+  amount: number;
+}
+
+export interface AppConfig {
+  addStartMins: number;
+  subEndMins: number;
+  rules: ExpenseRule[];
+}
+
+export interface EmailConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  fromEmail: string;
+}
+
+export interface Movement {
+  id: string;
+  employeeId: string;
+  date: string; // ISO YYYY-MM-DD
+  location: string;
+  startTimeRaw: string; // HH:MM
+  endTimeRaw: string; // HH:MM
+  startTimeCorr: string; // HH:MM
+  endTimeCorr: string; // HH:MM
+  durationNetto: number; // Hours
+  amount: number; // EUR
+  isManual: boolean;
+}
+
+export interface DateFilter {
+  month: number;
+  year: number;
+}
+
+// Data Structure required for PDF generation
+export interface ReportData {
+  employee: Employee;
+  movements: Movement[];
+  monthName: string;
+  year: number;
+  totals: { hours: number; amount: number };
+}
+
+export interface SystemLog {
+  id: number;
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR';
+  message: string;
+  details?: string;
+}

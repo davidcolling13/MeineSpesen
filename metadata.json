@@ -1,0 +1,6 @@
+{
+  "name": "MeineSpesen",
+  "description": "A comprehensive expense management application for calculating meal allowances based on employee attendance, featuring data import, manual adjustments, and reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

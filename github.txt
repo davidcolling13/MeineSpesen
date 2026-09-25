@@ -1,0 +1,24 @@
+FROM node:20-alpine
+
+# Install build tools for native modules (needed for sqlite3)
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json .
+COPY package-lock.json* .
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Build frontend
+RUN npm run build
+
+# Expose port (matches server.js default)
+ENV PORT=3001
+EXPOSE 3001
+
+# Start the server
+CMD ["npm", "start"]
